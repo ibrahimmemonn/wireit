@@ -33,6 +33,23 @@ export interface Range {
   readonly length: number;
 }
 
+export interface Location {
+  readonly absPathtoFile: string;
+  readonly range: Range;
+}
+
+export class Diagnostic {
+  /**
+   * @param message A human-readable message describing the problem.
+   */
+  constructor(
+    readonly severity: 'error' | 'warning',
+    readonly location: Location,
+    readonly message: string,
+    readonly supplementalLocations?: Location[]
+  ) {}
+}
+
 // Exported for testing
 export function drawSquiggleUnderRange(
   range: Range,

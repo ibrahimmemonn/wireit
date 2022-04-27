@@ -5,7 +5,7 @@
  */
 
 import * as pathlib from 'path';
-import {WireitError} from './error.js';
+import {Diagnostic, WireitError} from './error.js';
 import {CachingPackageJsonReader} from './util/package-json-reader.js';
 import {scriptReferenceToString, stringToScriptReference} from './script.js';
 import {AggregateError} from './util/aggregate-error.js';
@@ -24,6 +24,10 @@ import type {ArrayNode, JsonAstNode, NamedAstNode} from './util/ast.js';
  * and `name`, used temporarily while package.json files are still loading.
  */
 export type PlaceholderConfig = ScriptReference & Partial<ScriptConfig>;
+
+export interface InvalidScript extends PlaceholderConfig {
+  diagnostics: Diagnostic[];
+}
 
 /**
  * Analyzes and validates a script along with all of its transitive
