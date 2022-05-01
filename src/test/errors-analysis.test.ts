@@ -561,7 +561,7 @@ test(
   })
 );
 
-test.only(
+test(
   'script command is not wireit',
   timeout(async ({rig}) => {
     await rig.write({
