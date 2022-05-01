@@ -5,6 +5,8 @@
  */
 
 import type {Failure} from './event.js';
+import {JsonFile} from './util/package-json-reader.js';
+import * as pathLib from 'path';
 
 /**
  * A known Wireit error.
@@ -34,29 +36,61 @@ export interface Range {
 }
 
 export interface Location {
-  readonly absPathtoFile: string;
+  readonly file: JsonFile;
   readonly range: Range;
 }
 
-export class Diagnostic {
+export interface MessageLocation {
+  readonly message: string;
+  readonly location: Location;
+}
+
+export interface Diagnostic {
+  readonly severity: string;
+  readonly message: string;
+  readonly location: Location;
+  readonly supplementalLocations?: MessageLocation[];
+}
+
+export class DiagnosticPrinter {
+  #cwd: string;
   /**
-   * @param message A human-readable message describing the problem.
+   * @param workingDir Paths are printed relative to this directory.
    */
-  constructor(
-    readonly severity: 'error' | 'warning',
-    readonly location: Location,
-    readonly message: string,
-    readonly supplementalLocations?: Location[]
-  ) {}
+  constructor(workingDir: string) {
+    this.#cwd = workingDir;
+  }
+
+  print(diagnostic: Diagnostic) {
+    const path = pathLib.relative(this.#cwd, diagnostic.location.file.path);
+    let result = `❌ ${path} ${diagnostic.message}
+${drawSquiggle(diagnostic.location, 4)}`;
+    if (diagnostic.supplementalLocations) {
+      for (const supplementalLocation of diagnostic.supplementalLocations) {
+        result +=
+          '\n\n' +
+          this.#printSupplemental(diagnostic.location, supplementalLocation);
+      }
+    }
+    return result;
+  }
+
+  #printSupplemental(mainLocation: Location, supplemental: MessageLocation) {
+    const squiggle = drawSquiggle(supplemental.location, 8);
+    if (mainLocation.file.path === supplemental.location.file.path) {
+      return `    ${supplemental.message}\n${squiggle}`;
+    }
+    const path = pathLib.relative(this.#cwd, supplemental.location.file.path);
+    return `    ${path} ${supplemental.message}\n${squiggle}`;
+  }
 }
 
 // Exported for testing
-export function drawSquiggleUnderRange(
-  range: Range,
-  fileContents: string,
-  indent: number
-): string {
-  let {offset, length} = range;
+export function drawSquiggle(location: Location, indent: number): string {
+  let {
+    file: {contents: fileContents},
+    range: {offset, length},
+  } = location;
   const startOfInitialLine =
     fileContents.slice(0, offset).lastIndexOf('\n') + 1;
   const uncorrectedFirstNewlineIndexAfter = fileContents

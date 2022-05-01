@@ -5,7 +5,7 @@
  */
 
 import * as pathlib from 'path';
-import {Diagnostic, WireitError} from './error.js';
+import {WireitError} from './error.js';
 import {CachingPackageJsonReader} from './util/package-json-reader.js';
 import {scriptReferenceToString, stringToScriptReference} from './script.js';
 import {AggregateError} from './util/aggregate-error.js';
@@ -24,10 +24,6 @@ import type {ArrayNode, JsonAstNode, NamedAstNode} from './util/ast.js';
  * and `name`, used temporarily while package.json files are still loading.
  */
 export type PlaceholderConfig = ScriptReference & Partial<ScriptConfig>;
-
-export interface InvalidScript extends PlaceholderConfig {
-  diagnostics: Diagnostic[];
-}
 
 /**
  * Analyzes and validates a script along with all of its transitive
@@ -118,9 +114,9 @@ export class Analyzer {
    * upgraded; dependencies are upgraded asynchronously.
    */
   async #upgradePlaceholder(placeholder: PlaceholderConfig): Promise<void> {
-    let packageJsonAst;
+    let packageJson;
     try {
-      packageJsonAst = await this.#packageJsonReader.read(
+      packageJson = await this.#packageJsonReader.read(
         placeholder.packageDir,
         placeholder
       );
@@ -142,7 +138,7 @@ export class Analyzer {
     }
 
     const scriptsSection = findNamedNodeAtLocation(
-      packageJsonAst,
+      packageJson.ast,
       ['scripts'],
       placeholder
     );
@@ -155,7 +151,7 @@ export class Analyzer {
     }
 
     const wireitSection = findNamedNodeAtLocation(
-      packageJsonAst,
+      packageJson.ast,
       ['wireit'],
       placeholder
     );
@@ -194,7 +190,29 @@ export class Analyzer {
         type: 'failure',
         reason: 'script-not-wireit',
         script: placeholder,
-        astNode: scriptCommand,
+        diagnostic: {
+          message: `This command should just be "wireit", as this script is configured in the wireit section.`,
+          severity: 'warning',
+          location: {
+            file: packageJson,
+            range: {
+              length: scriptCommand.length,
+              offset: scriptCommand.offset,
+            },
+          },
+          supplementalLocations: [
+            {
+              message: `the wireit config is here`,
+              location: {
+                file: packageJson,
+                range: {
+                  length: wireitConfig.name.length,
+                  offset: wireitConfig.name.offset,
+                },
+              },
+            },
+          ],
+        },
       });
     }
 

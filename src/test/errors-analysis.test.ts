@@ -586,8 +586,14 @@ test(
     assert.match(
       done.stderr,
       `
-❌ [b] Script is not configured to call "wireit"
-`.trim()
+❌ package.json This command should just be "wireit", as this script is configured in the wireit section.
+        "b": "not-wireit"
+             ~~~~~~~~~~~~
+
+    the wireit config is here
+            "b": {
+            ~~~
+`.trimStart()
     );
   })
 );
