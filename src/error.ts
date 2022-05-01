@@ -54,6 +54,8 @@ export interface Diagnostic {
 
 export class DiagnosticPrinter {
   #cwd: string;
+  #offsetConverterCache = new WeakMap<JsonFile, OffsetToPositionConverter>();
+
   /**
    * @param workingDir Paths are printed relative to this directory.
    */
@@ -62,26 +64,85 @@ export class DiagnosticPrinter {
   }
 
   print(diagnostic: Diagnostic) {
-    const path = pathLib.relative(this.#cwd, diagnostic.location.file.path);
+    const path = this.#formatPath(diagnostic.location);
     let result = `❌ ${path} ${diagnostic.message}
 ${drawSquiggle(diagnostic.location, 4)}`;
     if (diagnostic.supplementalLocations) {
       for (const supplementalLocation of diagnostic.supplementalLocations) {
-        result +=
-          '\n\n' +
-          this.#printSupplemental(diagnostic.location, supplementalLocation);
+        result += '\n\n' + this.#printSupplemental(supplementalLocation);
       }
     }
     return result;
   }
 
-  #printSupplemental(mainLocation: Location, supplemental: MessageLocation) {
+  #printSupplemental(supplemental: MessageLocation) {
     const squiggle = drawSquiggle(supplemental.location, 8);
-    if (mainLocation.file.path === supplemental.location.file.path) {
-      return `    ${supplemental.message}\n${squiggle}`;
-    }
-    const path = pathLib.relative(this.#cwd, supplemental.location.file.path);
+    const path = this.#formatPath(supplemental.location);
     return `    ${path} ${supplemental.message}\n${squiggle}`;
+  }
+
+  #formatPath(location: Location) {
+    const relPath = pathLib.relative(this.#cwd, location.file.path);
+    const {line, column} = this.#offsetToPosition(
+      location.file,
+      location.range.offset
+    );
+    return `${relPath}:${line}:${column}`;
+  }
+
+  #offsetToPosition(
+    file: JsonFile,
+    offset: number
+  ): {line: number; column: number} {
+    const indexes = this.#getNewlineIndexes(file);
+    return indexes.toPosition(offset);
+  }
+
+  #getNewlineIndexes(file: JsonFile): OffsetToPositionConverter {
+    let converter = this.#offsetConverterCache.get(file);
+    if (converter === undefined) {
+      converter = new OffsetToPositionConverter(file.contents);
+      this.#offsetConverterCache.set(file, converter);
+    }
+    return converter;
+  }
+}
+
+export interface Position {
+  /** 1 indexed */
+  line: number;
+  /** 1 indexed */
+  column: number;
+}
+
+export class OffsetToPositionConverter {
+  readonly newlineIndexes: readonly number[];
+
+  constructor(contents: string) {
+    const indexes = [];
+    for (let i = 0; i < contents.length; i++) {
+      if (contents[i] === '\n') {
+        indexes.push(i);
+      }
+    }
+    this.newlineIndexes = indexes;
+  }
+
+  toPosition(offset: number): {line: number; column: number} {
+    if (this.newlineIndexes.length === 0) {
+      return {line: 1, column: offset + 1};
+    }
+    const line = this.newlineIndexes.findIndex((index) => index >= offset);
+    if (line === 0) {
+      return {line: 1, column: offset + 1};
+    }
+    if (line === -1) {
+      return {
+        line: this.newlineIndexes.length + 1,
+        column: offset - this.newlineIndexes[this.newlineIndexes.length - 1],
+      };
+    }
+    return {line: line + 1, column: offset - this.newlineIndexes[line - 1]};
   }
 }
 

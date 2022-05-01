@@ -561,7 +561,7 @@ test(
   })
 );
 
-test(
+test.only(
   'script command is not wireit',
   timeout(async ({rig}) => {
     await rig.write({
@@ -583,14 +583,14 @@ test(
     const result = rig.exec('npm run a');
     const done = await result.exit;
     assert.equal(done.code, 1);
-    assert.match(
+    assert.equal(
       done.stderr,
       `
-❌ package.json This command should just be "wireit", as this script is configured in the wireit section.
+❌ package.json:4:10 This command should just be "wireit", as this script is configured in the wireit section.
         "b": "not-wireit"
              ~~~~~~~~~~~~
 
-    the wireit config is here
+    package.json:12:5 the wireit config is here
             "b": {
             ~~~
 `.trimStart()

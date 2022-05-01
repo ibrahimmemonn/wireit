@@ -6,143 +6,252 @@
 
 import {suite} from 'uvu';
 import * as assert from 'uvu/assert';
-import {drawSquiggle, Location} from '../error.js';
+import {drawSquiggle, OffsetToPositionConverter, Position} from '../error.js';
 
 const test = suite();
 
-function makeFakeLocation(
-  offset: number,
-  length: number,
-  contents: string
-): Location {
-  return {
-    range: {
-      offset,
-      length,
+function assertSquiggleAndPosition(
+  {
+    offset,
+    length,
+    contents,
+    indent,
+  }: {offset: number; length: number; contents: string; indent?: number},
+  expectedSquiggle: string,
+  expectedPosition: Position
+) {
+  const squiggle = drawSquiggle(
+    {
+      range: {offset, length},
+      file: {
+        path: 'package.json',
+        ast: null!,
+        contents,
+      },
     },
-    file: {
-      path: 'package.json',
-      ast: null!,
-      contents,
-    },
-  };
+    indent ?? 0
+  );
+  const position = new OffsetToPositionConverter(contents).toPosition(offset);
+  if (expectedSquiggle[0] !== '\n') {
+    throw new Error(
+      `Test authoring error: write the expected squiggle as a template string with a leading newline.`
+    );
+  }
+  assert.equal(squiggle, expectedSquiggle.slice(1));
+  assert.equal(position, expectedPosition);
 }
 
 test('drawing squiggles under ranges in single-line files', () => {
-  assert.equal(drawSquiggle(makeFakeLocation(0, 0, 'H'), 0), 'H\n');
-
-  assert.equal(drawSquiggle(makeFakeLocation(0, 1, 'H'), 0), 'H\n~');
-
-  assert.equal(
-    drawSquiggle(makeFakeLocation(3, 3, 'aaabbbccc'), 0),
+  assertSquiggleAndPosition(
+    {
+      offset: 0,
+      length: 0,
+      contents: 'H',
+    },
     `
-aaabbbccc
-   ~~~`.slice(1)
+H
+`,
+    {line: 1, column: 1}
   );
 
-  assert.equal(
-    drawSquiggle(makeFakeLocation(3, 3, 'aaabbbccc'), 8),
+  assertSquiggleAndPosition(
+    {
+      offset: 3,
+      length: 3,
+      contents: 'aaabbbccc',
+    },
+    `
+aaabbbccc
+   ~~~`,
+    {line: 1, column: 4}
+  );
+
+  assertSquiggleAndPosition(
+    {
+      offset: 3,
+      length: 3,
+      contents: 'aaabbbccc',
+      indent: 8,
+    },
     `
         aaabbbccc
-           ~~~`.slice(1)
+           ~~~`,
+    {line: 1, column: 4}
   );
 });
 
 test('drawing squiggles single-line ranges at the end of multi-line files', () => {
-  assert.equal(drawSquiggle(makeFakeLocation(4, 0, 'abc\nH\n'), 0), 'H\n');
-
-  assert.equal(drawSquiggle(makeFakeLocation(4, 1, 'abc\nH\n'), 0), 'H\n~');
-
-  assert.equal(
-    drawSquiggle(makeFakeLocation(7, 3, 'abc\naaabbbccc'), 0),
+  assertSquiggleAndPosition(
+    {
+      offset: 4,
+      length: 0,
+      contents: 'abc\nH\n',
+    },
     `
-aaabbbccc
-   ~~~`.slice(1)
+H
+`,
+    {line: 2, column: 1}
   );
 
-  assert.equal(
-    drawSquiggle(makeFakeLocation(7, 3, 'abc\naaabbbccc'), 8),
+  assertSquiggleAndPosition(
+    {
+      offset: 4,
+      length: 1,
+      contents: 'abc\nH\n',
+    },
+    `
+H
+~`,
+    {line: 2, column: 1}
+  );
+
+  assertSquiggleAndPosition(
+    {
+      offset: 4,
+      length: 1,
+      contents: 'abc\nH\n',
+    },
+    `
+H
+~`,
+    {line: 2, column: 1}
+  );
+
+  assertSquiggleAndPosition(
+    {offset: 7, length: 3, contents: 'abc\naaabbbccc'},
+    `
+aaabbbccc
+   ~~~`,
+    {line: 2, column: 4}
+  );
+
+  assertSquiggleAndPosition(
+    {
+      offset: 7,
+      length: 3,
+      contents: 'abc\naaabbbccc',
+      indent: 8,
+    },
+
     `
         aaabbbccc
-           ~~~`.slice(1)
+           ~~~`,
+    {line: 2, column: 4}
   );
 });
 
 test('drawing squiggles under multi-line ranges', () => {
-  assert.equal(drawSquiggle(makeFakeLocation(0, 0, 'H\nabc'), 0), 'H\n');
-
-  assert.equal(drawSquiggle(makeFakeLocation(0, 1, 'H\nabc'), 0), 'H\n~');
-
-  assert.equal(
-    drawSquiggle(makeFakeLocation(3, 3, 'aaabbbccc\nabc'), 0),
+  assertSquiggleAndPosition(
+    {
+      offset: 0,
+      length: 0,
+      contents: 'H\nabc',
+    },
     `
-aaabbbccc
-   ~~~`.slice(1)
+H
+`,
+    {line: 1, column: 1}
   );
 
-  assert.equal(
-    drawSquiggle(makeFakeLocation(3, 3, 'aaabbbccc\nabc'), 8),
+  assertSquiggleAndPosition(
+    {
+      offset: 0,
+      length: 1,
+      contents: 'H\nabc',
+    },
+    `
+H
+~`,
+    {line: 1, column: 1}
+  );
+
+  assertSquiggleAndPosition(
+    {
+      offset: 3,
+      length: 3,
+      contents: 'aaabbbccc\nabc',
+    },
+    `
+aaabbbccc
+   ~~~`,
+    {line: 1, column: 4}
+  );
+
+  assertSquiggleAndPosition(
+    {
+      offset: 3,
+      length: 3,
+      contents: 'aaabbbccc\nabc',
+      indent: 8,
+    },
     `
         aaabbbccc
-           ~~~`.slice(1)
+           ~~~`,
+    {line: 1, column: 4}
   );
 });
 
 test('drawing squiggles under multi-line ranges', () => {
-  assert.equal(
-    drawSquiggle(makeFakeLocation(0, 0, 'abc\ndef\nhij'), 0),
+  assertSquiggleAndPosition(
+    {offset: 0, length: 0, contents: 'abc\ndef\nhij'},
     `
 abc
-`.slice(1)
+`,
+    {line: 1, column: 1}
   );
 
-  assert.equal(
-    drawSquiggle(makeFakeLocation(0, 5, 'abc\ndef\nhij'), 0),
+  assertSquiggleAndPosition(
+    {offset: 0, length: 5, contents: 'abc\ndef\nhij'},
     `
 abc
 ~~~
 def
-~`.slice(1)
+~`,
+    {line: 1, column: 1}
   );
 
   // include the newline at the end of the first line
-  assert.equal(
-    drawSquiggle(makeFakeLocation(0, 4, 'abc\ndef\nhij'), 0),
+  assertSquiggleAndPosition(
+    {offset: 0, length: 4, contents: 'abc\ndef\nhij'},
     `
 abc
 ~~~
 def
-`.slice(1)
+`,
+    {line: 1, column: 1}
   );
 
   // include _only_ the newline at the end of the first line
-  assert.equal(
-    drawSquiggle(makeFakeLocation(3, 1, 'abc\ndef\nhij'), 0),
+  assertSquiggleAndPosition(
+    {offset: 3, length: 1, contents: 'abc\ndef\nhij'},
     `
 abc
 ${'   '}
 def
-`.slice(1)
+`,
+    {line: 1, column: 4}
   );
 
-  assert.equal(
-    drawSquiggle(makeFakeLocation(3, 2, 'abc\ndef\nhij'), 0),
+  assertSquiggleAndPosition(
+    {offset: 3, length: 2, contents: 'abc\ndef\nhij'},
     `
 abc
 ${'   '}
 def
-~`.slice(1)
+~`,
+    {line: 1, column: 4}
   );
 
-  assert.equal(
-    drawSquiggle(makeFakeLocation(2, 7, 'abc\ndef\nhij'), 0),
+  assertSquiggleAndPosition(
+    {offset: 2, length: 7, contents: 'abc\ndef\nhij'},
     `
 abc
   ~
 def
 ~~~
 hij
-~`.slice(1)
+~`,
+    {line: 1, column: 3}
   );
 });
 
