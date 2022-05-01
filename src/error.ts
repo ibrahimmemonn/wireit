@@ -149,9 +149,9 @@ export class OffsetToPositionConverter {
 // Exported for testing
 export function drawSquiggle(location: Location, indent: number): string {
   let {
-    file: {contents: fileContents},
     range: {offset, length},
   } = location;
+  const fileContents = location.file.contents;
   const startOfInitialLine =
     fileContents.slice(0, offset).lastIndexOf('\n') + 1;
   const uncorrectedFirstNewlineIndexAfter = fileContents
