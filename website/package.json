@@ -1,0 +1,20 @@
+{
+  "name": "wireit-website",
+  "description": "The website for wireit",
+  "private": true,
+  "version": "0.0.0",
+  "author": "Google LLC",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "wireit"
+  },
+  "wireit": {
+    "build": {
+      "command": "eleventy"
+    }
+  },
+  "dependencies": {
+    "@11ty/eleventy": "^1.0.1"
+  }
+}
