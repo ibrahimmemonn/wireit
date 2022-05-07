@@ -15,7 +15,7 @@ command. This can significantly improve build and test time. When a script is
 restored from cache, any `stdout` or `stderr` is replayed.
 
 To enable caching for a script, ensure you have defined both the [`files` and
-`output`](/files/) arrays.
+`output`](../files/) arrays.
 
 > ℹ️ If a script doesn't produce any output files, it can still be cached by
 > setting `output` to an empty array (`"output": []`). Empty output is common for

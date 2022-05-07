@@ -12,7 +12,7 @@ eleventyNavigation:
 In _watch_ mode, Wireit monitors all `files` of a script, and all `files` of its
 transitive dependencies, and when there is a change, it re-runs only the
 affected scripts. To enable watch mode, ensure that the
-[`files`](/files/) array is defined, and add the `watch`
+[`files`](../files/) array is defined, and add the `watch`
 argument:
 
 ```bash

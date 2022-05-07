@@ -23,7 +23,7 @@
       "clean": "if-file-deleted"
     },
     "serve": {
-      "command": "wds --root-dir=_site --watch",
+      "command": "wds --root-dir=_site --base-path=/wireit/ --watch --open",
       "dependencies": [
         "build"
       ],

@@ -30,6 +30,7 @@ module.exports = function (eleventyConfig) {
   );
 
   return {
+    pathPrefix: '/wireit/',
     dir: {
       input: 'content',
     },

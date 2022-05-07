@@ -14,33 +14,33 @@ eleventyNavigation:
 The following properties can be set inside `wireit.<script>` objects in
 `package.json` files:
 
-| Property       | Type                           | Default                 | Description                                                                                            |
-| -------------- | ------------------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------ |
-| `command`      | `string`                       | `undefined`             | The shell command to run.                                                                              |
-| `dependencies` | `string[]`                     | `undefined`             | [Scripts that must run before this one](/dependencies/).                                               |
-| `files`        | `string[]`                     | `undefined`             | Input file [glob patterns](#glob-patterns), used to determine the [cache key](#cache-key).             |
-| `output`       | `string[]`                     | `undefined`             | Output file [glob patterns](#glob-patterns), used for [caching](/caching/) and [cleaning](/cleaning/). |
-| `clean`        | `boolean \| "if-file-deleted"` | `true`                  | [Delete output files before running](/cleaning/).                                                      |
-| `packageLocks` | `string[]`                     | `['package-lock.json']` | [Names of package lock files](/package-locks/).                                                        |
+| Property       | Type                           | Default                 | Description                                                                                                |
+| -------------- | ------------------------------ | ----------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `command`      | `string`                       | `undefined`             | The shell command to run.                                                                                  |
+| `dependencies` | `string[]`                     | `undefined`             | [Scripts that must run before this one](../dependencies/).                                                 |
+| `files`        | `string[]`                     | `undefined`             | Input file [glob patterns](#glob-patterns), used to determine the [cache key](#cache-key).                 |
+| `output`       | `string[]`                     | `undefined`             | Output file [glob patterns](#glob-patterns), used for [caching](../caching/) and [cleaning](../cleaning/). |
+| `clean`        | `boolean \| "if-file-deleted"` | `true`                  | [Delete output files before running](../cleaning/).                                                        |
+| `packageLocks` | `string[]`                     | `['package-lock.json']` | [Names of package lock files](../package-locks/).                                                          |
 
 ### Dependency syntax
 
 The following syntaxes can be used in the `wireit.<script>.dependencies` array:
 
-| Example      | Description                                                                                                   |
-| ------------ | ------------------------------------------------------------------------------------------------------------- |
-| `foo`        | Script named `"foo"` in the same package.                                                                     |
-| `../foo:bar` | Script named `"bar"` in the package found at `../foo` ([details](/dependencies/#cross-package-dependencies)). |
+| Example      | Description                                                                                                     |
+| ------------ | --------------------------------------------------------------------------------------------------------------- |
+| `foo`        | Script named `"foo"` in the same package.                                                                       |
+| `../foo:bar` | Script named `"bar"` in the package found at `../foo` ([details](../dependencies/#cross-package-dependencies)). |
 
 ### Environment variables
 
 The following environment variables affect the behavior of Wireit:
 
-| Variable          | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `WIREIT_PARALLEL` | [Maximum number of scripts to run at one time](/parallelism/).<br><br>Defaults to 4×CPUs.<br><br>Must be a positive integer or `infinity`.                                                                                                                                                                                                                                                                                                                       |
-| `WIREIT_CACHE`    | [Caching mode](/caching/).<br><br>Defaults to `local` unless `CI` is `true`, in which case defaults to `none`.<br><br>Automatically set to `github` by the [`google/wireit@setup-github-actions-caching/v1`](/caching/#github-actions-caching) action.<br><br>Options:<ul><li>[`local`](/caching/#local-caching): Cache to local disk.</li><li>[`github`](/caching/#github-actions-caching): Cache to GitHub Actions.</li><li>`none`: Disable caching.</li></ul> |
-| `CI`              | Affects the default value of `WIREIT_CACHE`.<br><br>Automatically set to `true` by [GitHub Actions](https://docs.github.com/en/actions/learn-github-actions/environment-variables#default-environment-variables) and most other CI (continuous integration) services.<br><br>Must be exactly `true`. If unset or any other value, interpreted as `false`.                                                                                                        |
+| Variable          | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `WIREIT_PARALLEL` | [Maximum number of scripts to run at one time](../parallelism/).<br><br>Defaults to 4×CPUs.<br><br>Must be a positive integer or `infinity`.                                                                                                                                                                                                                                                                                                                             |
+| `WIREIT_CACHE`    | [Caching mode](../caching/).<br><br>Defaults to `local` unless `CI` is `true`, in which case defaults to `none`.<br><br>Automatically set to `github` by the [`google/wireit@setup-github-actions-caching/v1`](../caching/#github-actions-caching) action.<br><br>Options:<ul><li>[`local`](../caching/#local-caching): Cache to local disk.</li><li>[`github`](../caching/#github-actions-caching): Cache to GitHub Actions.</li><li>`none`: Disable caching.</li></ul> |
+| `CI`              | Affects the default value of `WIREIT_CACHE`.<br><br>Automatically set to `true` by [GitHub Actions](https://docs.github.com/en/actions/learn-github-actions/environment-variables#default-environment-variables) and most other CI (continuous integration) services.<br><br>Must be exactly `true`. If unset or any other value, interpreted as `false`.                                                                                                                |
 
 ### Glob patterns
 
@@ -75,8 +75,8 @@ Also note these details:
 
 The following inputs determine the _cache key_ for a script. This key is used to
 determine whether a script can be skipped for [incremental
-build](/incremental-build/), and whether its output can be [restored from
-cache](/caching/).
+build](../incremental-build/), and whether its output can be [restored from
+cache](../caching/).
 
 - The `command` setting.
 - The `clean` setting.
@@ -89,7 +89,7 @@ cache](/caching/).
 - The system Node version (e.g. `16.7.0`).
 - The cache key of all transitive dependencies.
 
-When using [GitHub Actions caching](/caching/#github-actions-caching), the following
+When using [GitHub Actions caching](../caching/#github-actions-caching), the following
 input also affects the cache key:
 
 - The `ImageOS` environment variable (e.g. `ubuntu20`, `macos11`).

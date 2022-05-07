@@ -36,7 +36,7 @@ This section contains advice about integrating specific build tools with Wireit.
   [`.tsbuildinfo`](https://www.typescriptlang.org/tsconfig#tsBuildInfoFile) in
   `output` so that it is reset on clean builds. Otherwise `tsc` will get out of
   sync and produce incorrect output.
-- Set [`"clean": "if-file-deleted"`](/cleaning/) so that you get fast
+- Set [`"clean": "if-file-deleted"`](../cleaning/) so that you get fast
   incremental compilation when sources are changed/added, but also stale outputs
   are cleaned up when a source is deleted (`tsc` does not clean up stale outputs
   by itself).
