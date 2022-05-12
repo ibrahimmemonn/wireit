@@ -51,7 +51,10 @@ export type FailureMode = 'no-new' | 'continue' | 'kill';
  * Executes a script that has been analyzed and validated by the Analyzer.
  */
 export class Executor {
-  readonly #executions = new Map<string, Promise<ExecutionResult>>();
+  readonly #executions = new Map<
+    ScriptReferenceString,
+    Promise<ExecutionResult>
+  >();
   readonly #logger: Logger;
   readonly #workerPool: WorkerPool;
   readonly #cache?: Cache;
@@ -152,6 +155,13 @@ export class Executor {
       this.#executions.set(executionKey, promise);
     }
     return promise;
+  }
+
+  getExecutionPromise(
+    script: ScriptConfig
+  ): Promise<ExecutionResult> | undefined {
+    const executionKey = scriptReferenceToString(script);
+    return this.#executions.get(executionKey);
   }
 }
 
@@ -517,14 +527,80 @@ class ScriptExecution {
    * Start a child process for a server script, and wait for it to spawn.
    */
   #spawnServer(): Promise<Result<void>> {
-    // Servers are not subject to parallelism limits, because otherwise we risk
-    // getting deadlocked. There might be something smarter to do where we
-    // sometimes constrain parallelism when we can prove a deadlock isn't
-    // possible, but this seems fine for now.
+    // Servers are not currently subject to parallelism limits, because
+    // otherwise we risk getting deadlocked. There might be something smarter to
+    // do where we sometimes constrain parallelism when we can prove a deadlock
+    // isn't possible, but this seems fine for now.
     //
-    // Note we also don't need to handle stdout/stderr for servers, because
+    // Note we don't need to handle stdout/stderr for servers, because
     // servers are never skipped/cached, so we would never read that output.
-    return this.#startChildProcess().spawned;
+    const child = this.#startChildProcess();
+
+    // This promise resolves when all of the scripts that directly depend on us
+    // have completed.
+    const directDependentsDone = Promise.all(
+      this.#script.dependents.map((dependent) => {
+        const execution = this.#executor.getExecutionPromise(dependent.config);
+        if (execution === undefined) {
+          throw new Error(
+            `Internal error: server expected dependent execution to have started: ` +
+              `${JSON.stringify(this.#script.name)} expected ` +
+              `${JSON.stringify(dependent.config.name)} to be started`
+          );
+        }
+        return execution;
+      })
+    );
+
+    if (this.#isPrimary()) {
+      // A "primary" script is one that the user actively wants to run, as
+      // opposed to a dependency.
+
+      // If the root script has its own command defined (e.g. "npm run serve"),
+      // then that's the only primary script.
+      //
+      // But if the root script doesn't have a command, (e.g. "npm run servers"
+
+      // "Primary" scripts are the ones the user actually wants to run, as
+      // opposed to dependencies.
+      void Promise.all([
+        directDependentsDone,
+        this.#executor.shouldTerminateRunningScripts,
+      ]).then(() => child.terminate());
+    } else {
+      // Terminate the server after all direct dependents have finished.
+      void directDependentsDone.then(() => child.terminate());
+    }
+
+    // Unblock our dependents after we successfully spawn.
+    return child.spawned;
+  }
+
+  /**
+   * Whether this script has a command, and either is the root, or the root has
+   * no command and there is a path from this script to the root with no other
+   * commands.
+   */
+  #isPrimary(): boolean {
+    if (this.#script.command === undefined) {
+      return false;
+    }
+    const stack = [this.#script];
+    while (stack.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const script = stack.pop()!;
+      if (script.dependents.length === 0) {
+        // Either we are the root, or we found a command-less path to the root
+        // (the root is always the one with zero dependents).
+        return true;
+      }
+      stack.push(
+        ...this.#script.dependents
+          .map((dep) => dep.config)
+          .filter((config) => config.command === undefined)
+      );
+    }
+    return false;
   }
 
   /**
@@ -539,6 +615,10 @@ class ScriptExecution {
       }
 
       const child = this.#startChildProcess();
+
+      void this.#executor.shouldTerminateRunningScripts.then(() => {
+        child.terminate();
+      });
 
       // Only create the stdout/stderr replay files if we encounter anything on
       // this streams.
@@ -617,15 +697,11 @@ class ScriptExecution {
       type: 'info',
       detail: 'running',
     });
-    const child = new ScriptChildProcess(
+    return new ScriptChildProcess(
       // Unfortunately TypeScript doesn't automatically narrow this type
       // based on the undefined-command check we did just above.
       this.#script as ScriptConfigWithRequiredCommand
     );
-    void this.#executor.shouldTerminateRunningScripts.then(() => {
-      child.terminate();
-    });
-    return child;
   }
 
   /**

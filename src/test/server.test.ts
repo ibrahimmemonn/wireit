@@ -119,4 +119,151 @@ test(
   })
 );
 
+test(
+  'server is kept alive until all direct dependents finish',
+  timeout(async ({rig}) => {
+    //   indirect
+    //      |
+    //      v
+    //  keepalive1
+    //     |  \
+    //     |   v
+    //     | keepalive2
+    //     |  /
+    //     v v
+    //   server
+    const server = await rig.newCommand();
+    const indirect = await rig.newCommand();
+    const keepalive1 = await rig.newCommand();
+    const keepalive2 = await rig.newCommand();
+    await rig.write({
+      'package.json': {
+        scripts: {
+          server: 'wireit',
+          indirect: 'wireit',
+          keepalive1: 'wireit',
+          keepalive2: 'wireit',
+        },
+        wireit: {
+          server: {
+            command: server.command,
+            server: true,
+          },
+          indirect: {
+            command: indirect.command,
+            dependencies: ['keepalive1'],
+          },
+          keepalive1: {
+            command: keepalive1.command,
+            dependencies: ['server', 'keepalive2'],
+          },
+          keepalive2: {
+            command: keepalive2.command,
+            dependencies: ['server'],
+          },
+        },
+      },
+    });
+    const wireit = rig.exec('npm run indirect');
+
+    // server starts
+    const serverInv = await server.nextInvocation();
+
+    // keepalive2 starts and exits
+    const keepalive2Inv = await keepalive2.nextInvocation();
+    keepalive2Inv.exit(0);
+
+    // keepalive1 starts
+    const keepalive1Inv = await keepalive1.nextInvocation();
+
+    // server keeps running
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.ok(serverInv.isRunning);
+
+    // keepalive1 exits
+    keepalive1Inv.exit(0);
+
+    // server should be terminated by wireit now that there are no remaining
+    // direct dependencies. indirect still hasn't finished, but it's an indirect
+    // dependent, which doesn't count.
+    await serverInv.closed;
+
+    // indirect starts and exits
+    const indirectInv = await indirect.nextInvocation();
+    indirectInv.exit(0);
+
+    // all done
+    assert.equal((await wireit.exit).code, 0);
+    assert.equal(indirect.numInvocations, 1);
+    assert.equal(keepalive1.numInvocations, 1);
+    assert.equal(keepalive2.numInvocations, 1);
+    assert.equal(server.numInvocations, 1);
+  })
+);
+
+test(
+  'server is kept alive indefinitely if entrypoint',
+  timeout(async ({rig}) => {
+    const server = await rig.newCommand();
+    await rig.write({
+      'package.json': {
+        scripts: {
+          server: 'wireit',
+        },
+        wireit: {
+          server: {
+            command: server.command,
+            server: true,
+          },
+        },
+      },
+    });
+    const wireit = rig.exec('npm run server');
+    const serverInv = await server.nextInvocation();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.ok(serverInv.isRunning);
+    wireit.terminate();
+    await serverInv.closed;
+    await wireit.exit;
+    assert.equal(server.numInvocations, 1);
+  })
+);
+
+test(
+  // TODO(aomarks) Description is wrong
+  'server is kept alive indefinitely if closest command to entrypoint',
+  timeout(async ({rig}) => {
+    // nocommand
+    //     |
+    //     v
+    //  server
+    const server = await rig.newCommand();
+    await rig.write({
+      'package.json': {
+        scripts: {
+          nocommand: 'wireit',
+          server: 'wireit',
+        },
+        wireit: {
+          nocommand: {
+            dependencies: ['server'],
+          },
+          server: {
+            command: server.command,
+            server: true,
+          },
+        },
+      },
+    });
+    const wireit = rig.exec('npm run nocommand');
+    const serverInv = await server.nextInvocation();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.ok(serverInv.isRunning);
+    wireit.terminate();
+    await serverInv.closed;
+    await wireit.exit;
+    assert.equal(server.numInvocations, 1);
+  })
+);
+
 test.run();

@@ -157,6 +157,13 @@ export class WireitTestRigCommandInvocation {
   }
 
   /**
+   * Synchronously check if this command is still running.
+   */
+  get isRunning(): boolean {
+    return !this.#socketClosed.settled;
+  }
+
+  /**
    * Promise that resolves when this invocation's socket has exited, indicating
    * that the process has exited (or is just about to exit).
    */
