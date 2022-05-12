@@ -46,6 +46,7 @@
     "test:optimize-cprms": "wireit",
     "test:optimize-mkdirs": "wireit",
     "test:parallelism": "wireit",
+    "test:server": "wireit",
     "test:stdio-replay": "wireit",
     "test:watch": "wireit"
   },
@@ -88,6 +89,7 @@
         "test:optimize-cprms",
         "test:optimize-mkdirs",
         "test:parallelism",
+        "test:server",
         "test:stdio-replay",
         "test:watch"
       ]
@@ -246,6 +248,14 @@
     },
     "test:parallelism": {
       "command": "cross-env NODE_OPTIONS=--enable-source-maps uvu lib/test \"parallelism\\.test\\.js$\"",
+      "dependencies": [
+        "build"
+      ],
+      "files": [],
+      "output": []
+    },
+    "test:server": {
+      "command": "cross-env NODE_OPTIONS=--enable-source-maps uvu lib/test \"server\\.test\\.js$\"",
       "dependencies": [
         "build"
       ],
