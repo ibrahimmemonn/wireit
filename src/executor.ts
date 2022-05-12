@@ -320,6 +320,7 @@ class ScriptExecution {
     const prevStateStr = await this.#readPreviousState();
     if (
       state.cacheable &&
+      !this.#script.server &&
       prevStateStr !== undefined &&
       prevStateStr === stateStr
     ) {
@@ -348,9 +349,10 @@ class ScriptExecution {
     // don't want to think that the previous state is still valid.
     await this.#prepareDataDir();
 
-    const cacheHit = state.cacheable
-      ? await this.#cache?.get(this.#script, stateStr)
-      : undefined;
+    const cacheHit =
+      state.cacheable && !this.#script.server
+        ? await this.#cache?.get(this.#script, stateStr)
+        : undefined;
 
     const shouldClean = (() => {
       if (cacheHit !== undefined) {
@@ -424,7 +426,7 @@ class ScriptExecution {
     // return, we only need to wait in the top-level call to execute. The same
     // will go for saving output to the cache.
     await this.#writeStateFile(stateStr);
-    if (cacheHit === undefined && state.cacheable) {
+    if (cacheHit === undefined && state.cacheable && !this.#script.server) {
       const result = await this.#saveToCacheIfPossible(stateStr);
       if (!result.ok) {
         return {ok: false, error: [result.error]};

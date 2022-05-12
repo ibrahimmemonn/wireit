@@ -5,7 +5,10 @@
  */
 
 import {suite} from 'uvu';
+import * as assert from 'uvu/assert';
+import {timeout} from './util/uvu-timeout.js';
 import {WireitTestRig} from './util/test-rig.js';
+import {getScriptDataDir} from '../util/script-data-dir.js';
 
 const test = suite<{rig: WireitTestRig}>();
 
@@ -31,5 +34,56 @@ test.after.each(async (ctx) => {
     process.exit(1);
   }
 });
+
+test(
+  'server is never skipped or restored from cache',
+  timeout(async ({rig}) => {
+    const server = await rig.newCommand();
+    await rig.write({
+      'package.json': {
+        scripts: {
+          server: 'wireit',
+        },
+        wireit: {
+          server: {
+            command: server.command,
+            server: true,
+            // Set files and output so that we can be skipped and cached.
+            files: [],
+            output: [],
+          },
+        },
+      },
+    });
+
+    // Everything runs the first time.
+    {
+      const wireit = rig.exec('npm run server');
+      (await server.nextInvocation()).exit(0);
+      assert.equal((await wireit.exit).code, 0);
+      assert.equal(server.numInvocations, 1);
+    }
+
+    // A non-server would now be skipped, but a server is never skipped.
+    {
+      const wireit = rig.exec('npm run server');
+      (await server.nextInvocation()).exit(0);
+      assert.equal((await wireit.exit).code, 0);
+      assert.equal(server.numInvocations, 2);
+    }
+
+    // Delete the script's state but not its cache. This would cause a cache hit
+    // for a non-server, but a server is never restored from cache.
+    {
+      await rig.delete(
+        `${getScriptDataDir({packageDir: rig.temp, name: 'server'})}/state`
+      );
+      const wireit = rig.exec('npm run server');
+      (await server.nextInvocation()).exit(0);
+      assert.equal((await wireit.exit).code, 0);
+      assert.equal(server.numInvocations, 3);
+    }
+  })
+);
 
 test.run();
