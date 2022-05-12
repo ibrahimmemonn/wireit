@@ -94,6 +94,11 @@ interface BaseScriptConfig extends ScriptReference {
   clean: boolean | 'if-file-deleted';
 
   /**
+   * Whether the script is expected to run indefinitely.
+   */
+  service: boolean;
+
+  /**
    * The command string in the scripts section. i.e.:
    *
    * ```json
