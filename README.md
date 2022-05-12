@@ -35,6 +35,7 @@
   - [GitHub Actions caching](#github-actions-caching)
 - [Cleaning output](#cleaning-output)
 - [Watch mode](#watch-mode)
+- [Servers](#servers)
 - [Failures and errors](#failures-and-errors)
 - [Package locks](#package-locks)
 - [Recipes](#recipes)
@@ -378,6 +379,51 @@ The benefit of Wireit's watch mode over built-in watch modes are:
 - It prevents problems that can occur when running many separate watch commands
   simultaneously, such as build steps being triggered before all preceding steps
   have finished.
+
+## Servers
+
+By default, Wireit assumes that your scripts will eventually exit by themselves.
+This is well suited for build and test scripts, but not for long-running
+processes like servers. To tell Wireit that a process is long-running and not
+expected to exit by itself, set `"server": true`.
+
+```json
+{
+  "scripts": {
+    "serve": "wireit",
+    "build:server": "wireit",
+    "build:assets": "wireit"
+  },
+  "wireit": {
+    "serve": {
+      "command": "node my-server.js",
+      "server": true,
+      "files": ["server-config.json"],
+      "dependencies": ["build:server", "build:assets"],
+      "output": []
+    }
+  }
+}
+```
+
+Setting `"server": true` has the following effects:
+
+- A server script will always run. It will never be skipped or restored from
+  cache.
+
+- If a script depends on a server script, then the depending script won't wait
+  for the server to exit before starting. Instead, it just waits for the server
+  process to be spawned.
+
+- If a server script is run _directly_ (e.g. `npm run serve`), then it will stay
+  running until the user kills Wireit (e.g. `Ctrl-C`).
+
+- If a server script is run _indirectly_ (e.g. `npm run depends-on-server`),
+  then the server script will stay running until all scripts which directly
+  depend on it have finished.
+
+- In watch mode, the server will be restarted whenever an input file or
+  dependency changes.
 
 ## Failures and errors
 

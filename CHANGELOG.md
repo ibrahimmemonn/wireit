@@ -20,6 +20,14 @@ Versioning](https://semver.org/spec/v2.0.0.html).
     all of their dependencies succeeded.
   - `kill`: Immediately terminate running scripts, and don't start new ones.
 
+- Added `"server": true` setting, which has the following effects:
+
+  - Always runs. Never skipped or restored from cache.
+  - Dependents won't wait for the server to exit before starting.
+  - When run directly, stays running until Wireit is killed.
+  - When run indirectly, stays running until all direct dependents finish.
+  - In watch mode, restarted when input file or dependency changes.
+
 ### Changed
 
 - Default failure mode changed from `continue` to `no-new` (see above for
