@@ -82,6 +82,17 @@ export interface ScriptConfig extends ScriptReference {
   clean: boolean | 'if-file-deleted';
 
   /**
+   * Whether the script should run in server mode, which means:
+   *
+   * - It alwayqs runs. Never skipped or restored from cache.
+   * - Dependents won't wait for the server to exit before starting.
+   * - When run directly, stays running until Wireit is killed.
+   * - When run indirectly, stays running until all direct dependents finish.
+   * - In watch mode, restarted when input file or dependency changes.
+   */
+  server: boolean;
+
+  /**
    * The command string in the scripts section. i.e.:
    *
    * ```json

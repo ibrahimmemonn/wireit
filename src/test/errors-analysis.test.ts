@@ -1639,4 +1639,66 @@ test(`repro an issue with looking for a colon in missing dependency`, async ({
   );
 });
 
+test(
+  'server is not a boolean',
+  timeout(async ({rig}) => {
+    await rig.write({
+      'package.json': {
+        scripts: {
+          a: 'wireit',
+        },
+        wireit: {
+          a: {
+            command: 'true',
+            server: 1,
+          },
+        },
+      },
+    });
+    const result = rig.exec('npm run a');
+    const done = await result.exit;
+    assert.equal(done.code, 1);
+    assertScriptOutputEquals(
+      done.stderr,
+      `
+❌ package.json:8:17 The "server" property must be either true or false.
+          "server": 1
+                    ~`
+    );
+  })
+);
+
+test(
+  'server does not have command',
+  timeout(async ({rig}) => {
+    await rig.write({
+      'package.json': {
+        scripts: {
+          a: 'wireit',
+          b: 'wireit',
+        },
+        wireit: {
+          a: {
+            server: true,
+            dependencies: ['b'],
+          },
+          b: {
+            command: 'true',
+          },
+        },
+      },
+    });
+    const result = rig.exec('npm run a');
+    const done = await result.exit;
+    assert.equal(done.code, 1);
+    assertScriptOutputEquals(
+      done.stderr,
+      `
+❌ package.json:8:17 A "server" script must have a "command".
+          "server": true,
+                    ~~~~`
+    );
+  })
+);
+
 test.run();
