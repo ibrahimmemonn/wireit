@@ -436,6 +436,7 @@ export class Analyzer {
     // creating a new object, because other configs may be referencing this
     // exact object in their dependencies.
     const remainingConfig: LocallyValidScriptConfig = {
+      dependents: [],
       ...placeholder,
       state: 'locally-valid',
       failures: placeholder.failures,
@@ -544,6 +545,14 @@ export class Analyzer {
         dependencies.push({
           astNode: unresolved,
           config: placeHolderInfo.placeholder,
+        });
+        if (placeHolderInfo.placeholder.dependents === undefined) {
+          placeHolderInfo.placeholder.dependents = [];
+        }
+        placeHolderInfo.placeholder.dependents.push({
+          // TODO(aomarks) Is there a way to do this without a cast?
+          config: placeholder as unknown as ScriptConfig,
+          astNode: stringResult.value,
         });
         this.#ongoingWorkPromises.push(
           (async () => {

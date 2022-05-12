@@ -58,6 +58,11 @@ export interface ScriptConfig extends ScriptReference {
   dependencies: Array<Dependency<ScriptConfig>>;
 
   /**
+   * Scripts that depend on this one.
+   */
+  dependents: Array<Dependency<ScriptConfig>>;
+
+  /**
    * Input file globs for this script.
    *
    * If undefined, the input files are unknown (meaning the script cannot safely
