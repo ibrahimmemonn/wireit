@@ -415,8 +415,18 @@ class ScriptExecution {
         type: 'success',
         reason: 'cached',
       });
+    } else if (!this.#script.command) {
+      // It's valid to not have a command defined, since thats a useful way to
+      // alias a group of dependency scripts. In this case, we can return early.
+      this.#logger.log({
+        script: this.#script,
+        type: 'success',
+        reason: 'no-command',
+      });
     } else {
-      const result = await this.#spawnCommandIfNeeded();
+      const result = this.#script.server
+        ? await this.#spawnServer()
+        : await this.#spawnNonServer();
       if (!result.ok) {
         return {ok: false, error: [result.error]};
       }
@@ -503,18 +513,24 @@ class ScriptExecution {
     return {ok: true, value: results};
   }
 
-  async #spawnCommandIfNeeded(): Promise<Result<void>> {
-    // It's valid to not have a command defined, since thats a useful way to
-    // alias a group of dependency scripts. In this case, we can return early.
-    if (!this.#script.command) {
-      this.#logger.log({
-        script: this.#script,
-        type: 'success',
-        reason: 'no-command',
-      });
-      return {ok: true, value: undefined};
-    }
+  /**
+   * Start a child process for a server script, and wait for it to spawn.
+   */
+  #spawnServer(): Promise<Result<void>> {
+    // Servers are not subject to parallelism limits, because otherwise we risk
+    // getting deadlocked. There might be something smarter to do where we
+    // sometimes constrain parallelism when we can prove a deadlock isn't
+    // possible, but this seems fine for now.
+    //
+    // Note we also don't need to handle stdout/stderr for servers, because
+    // servers are never skipped/cached, so we would never read that output.
+    return this.#startChildProcess().spawned;
+  }
 
+  /**
+   * Start a child process for a non-server script, and wait for it to complete.
+   */
+  #spawnNonServer(): Promise<Result<void>> {
     return this.#workerPool.run(async (): Promise<Result<void>> => {
       // Significant time could have elapsed since we last checked because of
       // parallelism limits.
@@ -522,21 +538,7 @@ class ScriptExecution {
         return {ok: false, error: this.#cancelledEvent};
       }
 
-      this.#logger.log({
-        script: this.#script,
-        type: 'info',
-        detail: 'running',
-      });
-
-      const child = new ScriptChildProcess(
-        // Unfortunately TypeScript doesn't automatically narrow this type
-        // based on the undefined-command check we did just above.
-        this.#script as ScriptConfigWithRequiredCommand
-      );
-
-      void this.#executor.shouldTerminateRunningScripts.then(() => {
-        child.terminate();
-      });
+      const child = this.#startChildProcess();
 
       // Only create the stdout/stderr replay files if we encounter anything on
       // this streams.
@@ -601,6 +603,29 @@ class ScriptExecution {
         }
       }
     });
+  }
+
+  /**
+   * Start and return a child process for this script.
+   */
+  #startChildProcess(): ScriptChildProcess {
+    if (!this.#script.command) {
+      throw new Error('Internal error: trying to spawn script with no command');
+    }
+    this.#logger.log({
+      script: this.#script,
+      type: 'info',
+      detail: 'running',
+    });
+    const child = new ScriptChildProcess(
+      // Unfortunately TypeScript doesn't automatically narrow this type
+      // based on the undefined-command check we did just above.
+      this.#script as ScriptConfigWithRequiredCommand
+    );
+    void this.#executor.shouldTerminateRunningScripts.then(() => {
+      child.terminate();
+    });
+    return child;
   }
 
   /**

@@ -86,4 +86,37 @@ test(
   })
 );
 
+test(
+  'dependent on server does not wait for it to exit',
+  timeout(async ({rig}) => {
+    const server = await rig.newCommand();
+    const dependent = await rig.newCommand();
+    await rig.write({
+      'package.json': {
+        scripts: {
+          server: 'wireit',
+          dependent: 'wireit',
+        },
+        wireit: {
+          server: {
+            command: server.command,
+            server: true,
+          },
+          dependent: {
+            command: dependent.command,
+            dependencies: ['server'],
+          },
+        },
+      },
+    });
+
+    const wireit = rig.exec('npm run dependent');
+    const serverInv = await server.nextInvocation();
+    const dependentInv = await dependent.nextInvocation();
+    dependentInv.exit(0);
+    serverInv.exit(0);
+    assert.equal((await wireit.exit).code, 0);
+  })
+);
+
 test.run();
