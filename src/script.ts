@@ -84,6 +84,11 @@ interface BaseScriptConfig extends ScriptReference {
   dependencies: Array<Dependency<ScriptConfig>>;
 
   /**
+   * Scripts that depend on this one. The reverse of {@link dependencies}.
+   */
+  reverseDependencies: Array<Dependency<ScriptConfig>>;
+
+  /**
    * Input file globs for this script.
    *
    * If undefined, the input files are unknown (meaning the script cannot safely
