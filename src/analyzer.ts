@@ -44,10 +44,14 @@ export type PotentiallyValidScriptConfig =
  * A script with an invalid config may stay a placeholder forever.
  */
 export type UnvalidatedConfig = ScriptReference &
-  Omit<Partial<ScriptConfig>, 'state' | 'dependencies'> & {
+  Omit<
+    Partial<ScriptConfig>,
+    'state' | 'dependencies' | 'reverseDependencies'
+  > & {
     state: 'unvalidated';
     failures: Failure[];
     dependencies?: Array<Dependency<PotentiallyValidScriptConfig>>;
+    reverseDependencies?: Array<Dependency<PotentiallyValidScriptConfig>>;
   };
 
 /**
@@ -56,10 +60,11 @@ export type UnvalidatedConfig = ScriptReference &
  */
 export type LocallyValidScriptConfig = Omit<
   ScriptConfig,
-  'state' | 'dependencies'
+  'state' | 'dependencies' | 'reverseDependencies'
 > & {
   state: 'locally-valid';
   dependencies: Array<Dependency<PotentiallyValidScriptConfig>>;
+  reverseDependencies?: Array<Dependency<PotentiallyValidScriptConfig>>;
 };
 
 /**
@@ -72,10 +77,11 @@ export type LocallyValidScriptConfig = Omit<
  */
 export type InvalidScriptConfig = Omit<
   ScriptConfig,
-  'state' | 'dependencies'
+  'state' | 'dependencies' | 'reverseDependencies'
 > & {
   state: 'invalid';
   dependencies: Array<Dependency<PotentiallyValidScriptConfig>>;
+  reverseDependencies?: Array<Dependency<PotentiallyValidScriptConfig>>;
   // This should also be pushed into the `dependencies` field, but this way
   // we can be sure it's here.
   dependencyFailure: Failure;
@@ -585,6 +591,19 @@ export class Analyzer {
           astNode: unresolved,
           config: placeHolderInfo.placeholder,
         });
+
+        let reverseDependencies:
+          | Array<Dependency<PotentiallyValidScriptConfig>>
+          | undefined = placeHolderInfo.placeholder.reverseDependencies;
+        if (reverseDependencies === undefined) {
+          reverseDependencies =
+            placeHolderInfo.placeholder.reverseDependencies = [];
+        }
+        reverseDependencies.push({
+          config: placeholder,
+          astNode: stringResult.value,
+        });
+
         this._ongoingWorkPromises.push(
           (async () => {
             await placeHolderInfo.upgradeComplete;
@@ -1088,6 +1107,9 @@ export class Analyzer {
         extraArgs: undefined,
         state: 'valid',
         dependencies: config.dependencies as Array<Dependency<ScriptConfig>>,
+        reverseDependencies: config.reverseDependencies as Array<
+          Dependency<ScriptConfig>
+        >,
       };
       // We want to keep the original reference, but get type checking that
       // the only difference between a ScriptConfig and a
