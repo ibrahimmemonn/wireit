@@ -15,6 +15,7 @@ import type {
   ScriptReference,
   ScriptReferenceString,
 } from './script.js';
+import type {ExecutionResultData} from './execution/base.js';
 
 /**
  * All meaningful inputs of a script. Used for determining if a script is fresh,
@@ -109,13 +110,13 @@ export class Fingerprint {
    */
   static async compute(
     script: ScriptConfig,
-    dependencyFingerprints: Array<[ScriptReference, Fingerprint]>
+    dependencyFingerprints: Array<[ScriptReference, ExecutionResultData]>
   ): Promise<Fingerprint> {
     let allDependenciesAreCacheable = true;
     const filteredDependencyFingerprints: Array<
       [ScriptReferenceString, FingerprintData]
     > = [];
-    for (const [dep, depFingerprint] of dependencyFingerprints) {
+    for (const [dep, {fingerprint: depFingerprint}] of dependencyFingerprints) {
       if (!depFingerprint.data.cacheable) {
         allDependenciesAreCacheable = false;
       }

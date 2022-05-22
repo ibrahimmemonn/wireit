@@ -229,7 +229,7 @@ export class OneShotExecution extends BaseExecution<OneShotScriptConfig> {
       type: 'success',
       reason: 'fresh',
     });
-    return {ok: true, value: fingerprint};
+    return {ok: true, value: {fingerprint, services: []}};
   }
 
   /**
@@ -273,7 +273,7 @@ export class OneShotExecution extends BaseExecution<OneShotScriptConfig> {
       reason: 'cached',
     });
 
-    return {ok: true, value: fingerprint};
+    return {ok: true, value: {fingerprint, services: []}};
   }
 
   /**
@@ -397,7 +397,7 @@ export class OneShotExecution extends BaseExecution<OneShotScriptConfig> {
       }
     }
 
-    return {ok: true, value: fingerprint};
+    return {ok: true, value: {fingerprint, services: []}};
   }
 
   async #shouldClean(fingerprint: Fingerprint) {

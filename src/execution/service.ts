@@ -5,6 +5,7 @@
  */
 
 import {BaseExecution} from './base.js';
+import {Fingerprint} from '../fingerprint.js';
 
 import type {ExecutionResult} from './base.js';
 import type {Executor} from '../executor.js';
@@ -24,13 +25,14 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
   }
 
   async #execute(): Promise<ExecutionResult> {
-    const dependencyFingerprints = await this.executeDependencies();
-    if (!dependencyFingerprints.ok) {
-      return dependencyFingerprints;
+    const dependencyResults = await this.executeDependencies();
+    if (!dependencyResults.ok) {
+      return dependencyResults;
     }
-    const fingerprint = await this.computeFingerprint(
-      dependencyFingerprints.value
+    const fingerprint = await Fingerprint.compute(
+      this.script,
+      dependencyResults.value
     );
-    return {ok: true, value: fingerprint};
+    return {ok: true, value: {fingerprint, services: [this]}};
   }
 }

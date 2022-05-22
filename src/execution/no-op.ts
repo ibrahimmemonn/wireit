@@ -25,19 +25,28 @@ export class NoOpExecution extends BaseExecution<NoOpScriptConfig> {
   }
 
   async #execute(): Promise<ExecutionResult> {
-    const dependencyFingerprints = await this.executeDependencies();
-    if (!dependencyFingerprints.ok) {
-      return dependencyFingerprints;
+    const dependencyResults = await this.executeDependencies();
+    if (!dependencyResults.ok) {
+      return dependencyResults;
     }
     const fingerprint = await Fingerprint.compute(
       this.script,
-      dependencyFingerprints.value
+      dependencyResults.value
     );
+
+    // Forward up all services from dependencies.
+    const services = [];
+    for (const [, result] of dependencyResults.value) {
+      for (const service of result.services) {
+        services.push(service);
+      }
+    }
+
     this.logger.log({
       script: this.script,
       type: 'success',
       reason: 'no-command',
     });
-    return {ok: true, value: fingerprint};
+    return {ok: true, value: {fingerprint, services}};
   }
 }
