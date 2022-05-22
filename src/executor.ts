@@ -6,6 +6,7 @@
 
 import {NoOpExecution} from './execution/no-op.js';
 import {OneShotExecution} from './execution/one-shot.js';
+import {ServiceExecution} from './execution/service.js';
 import {ScriptConfig, scriptReferenceToString} from './script.js';
 import {WorkerPool} from './util/worker-pool.js';
 import {Deferred} from './util/deferred.js';
@@ -131,6 +132,9 @@ export class Executor {
   #executeAccordingToKind(script: ScriptConfig): Promise<ExecutionResult> {
     if (script.command === undefined) {
       return NoOpExecution.execute(script, this, this.#logger);
+    }
+    if (script.service) {
+      return ServiceExecution.execute(script, this, this.#logger);
     }
     return OneShotExecution.execute(
       script,

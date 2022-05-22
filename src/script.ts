@@ -34,7 +34,10 @@ export interface Dependency<Config extends PotentiallyValidScriptConfig> {
   astNode: JsonAstNode<string>;
 }
 
-export type ScriptConfig = NoOpScriptConfig | OneShotScriptConfig;
+export type ScriptConfig =
+  | NoOpScriptConfig
+  | OneShotScriptConfig
+  | ServiceScriptConfig;
 
 /**
  * A script that doesn't run or produce anything. A pass-through for
@@ -48,10 +51,16 @@ export interface NoOpScriptConfig extends BaseScriptConfig {
  * A script with a command that exits by itself.
  */
 export interface OneShotScriptConfig extends BaseScriptConfig {
-  /**
-   * The shell command to execute.
-   */
   command: JsonAstNode<string>;
+  service: false;
+}
+
+/**
+ * A script with a command that runs indefinitely.
+ */
+export interface ServiceScriptConfig extends BaseScriptConfig {
+  command: JsonAstNode<string>;
+  service: true;
 }
 
 /**
@@ -59,6 +68,11 @@ export interface OneShotScriptConfig extends BaseScriptConfig {
  */
 interface BaseScriptConfig extends ScriptReference {
   state: 'valid';
+
+  /**
+   * The shell command to execute.
+   */
+  command: JsonAstNode<string> | undefined;
 
   /**
    * Scripts that must run before this one.
