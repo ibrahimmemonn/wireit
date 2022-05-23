@@ -30,7 +30,7 @@ interface EventBase<T extends PackageReference> {
 // Success events
 // -------------------------------
 
-type Success = ExitZero | NoCommand | Fresh | Cached;
+type Success = ExitZero | NoCommand | Fresh | Cached | ServiceStopped;
 
 interface SuccessBase<T extends PackageReference> extends EventBase<T> {
   type: 'success';
@@ -64,6 +64,13 @@ export interface Cached extends SuccessBase<ScriptConfig> {
   reason: 'cached';
 }
 
+/**
+ * A service was successfully stopped.
+ */
+export interface ServiceStopped extends SuccessBase<ScriptConfig> {
+  reason: 'service-stopped';
+}
+
 // -------------------------------
 // Failure events
 // -------------------------------
@@ -73,6 +80,7 @@ export type Failure =
   | ExitSignal
   | SpawnError
   | StartCancelled
+  | ServiceTerminatedUnexpectedly
   | Killed
   | LaunchedIncorrectly
   | MissingPackageJson
@@ -126,6 +134,14 @@ export interface SpawnError extends ErrorBase<ScriptReference> {
  */
 export interface StartCancelled extends ErrorBase<ScriptReference> {
   reason: 'start-cancelled';
+}
+
+/**
+ * A service child process exited unexpectedly.
+ */
+export interface ServiceTerminatedUnexpectedly
+  extends ErrorBase<ScriptReference> {
+  reason: 'service-terminated-unexpectedly';
 }
 
 /**

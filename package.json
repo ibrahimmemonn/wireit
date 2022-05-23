@@ -45,6 +45,7 @@
     "test:json-schema": "wireit",
     "test:optimize-mkdirs": "wireit",
     "test:parallelism": "wireit",
+    "test:service": "wireit",
     "test:stdio-replay": "wireit",
     "test:watch": "wireit"
   },
@@ -236,6 +237,14 @@
     },
     "test:parallelism": {
       "command": "cross-env NODE_OPTIONS=--enable-source-maps uvu lib/test \"parallelism\\.test\\.js$\"",
+      "dependencies": [
+        "build"
+      ],
+      "files": [],
+      "output": []
+    },
+    "test:service": {
+      "command": "cross-env NODE_OPTIONS=--enable-source-maps uvu lib/test \"service\\.test\\.js$\"",
       "dependencies": [
         "build"
       ],

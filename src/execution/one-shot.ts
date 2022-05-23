@@ -15,18 +15,19 @@ import {deleteEntries} from '../util/delete.js';
 import {posixifyPathIfOnWindows} from '../util/windows.js';
 import lockfile from 'proper-lockfile';
 import {ScriptChildProcess} from '../script-child-process.js';
-import {BaseExecution} from './base.js';
+import {BaseExecution, ExecutionResultData} from './base.js';
 import {Fingerprint} from '../fingerprint.js';
+import {Deferred} from '../util/deferred.js';
 
-import type {Result} from '../error.js';
+import {aggregateFailures, Result} from '../error.js';
 import type {ExecutionResult} from './base.js';
 import type {Executor} from '../executor.js';
-import type {OneShotScriptConfig} from '../script.js';
+import type {OneShotScriptConfig, ScriptReference} from '../script.js';
 import type {FingerprintString} from '../fingerprint.js';
 import type {Logger} from '../logging/logger.js';
 import type {WriteStream} from 'fs';
 import type {Cache, CacheHit} from '../caching/cache.js';
-import type {StartCancelled} from '../event.js';
+import {Failure, StartCancelled} from '../event.js';
 
 /**
  * Execution for a {@link OneShotScriptConfig}.
@@ -50,6 +51,8 @@ export class OneShotExecution extends BaseExecution<OneShotScriptConfig> {
 
   readonly #cache?: Cache;
   readonly #workerPool: WorkerPool;
+  readonly #completed = new Deferred<void>();
+  readonly #serviceTerminated = new Deferred<void>();
 
   private constructor(
     script: OneShotScriptConfig,
@@ -64,10 +67,16 @@ export class OneShotExecution extends BaseExecution<OneShotScriptConfig> {
   }
 
   async #execute(): Promise<ExecutionResult> {
-    const dependencyFingerprints = await this.executeDependencies();
-    if (!dependencyFingerprints.ok) {
-      dependencyFingerprints.error.push(this.#startCancelledEvent);
-      return dependencyFingerprints;
+    const result = await this.#actuallyExecute();
+    this.#completed.resolve();
+    return result;
+  }
+
+  async #actuallyExecute(): Promise<ExecutionResult> {
+    const dependencyResults = await this.executeDependencies();
+    if (!dependencyResults.ok) {
+      dependencyResults.error.push(this.#startCancelledEvent);
+      return dependencyResults;
     }
 
     // Significant time could have elapsed since we last checked because our
@@ -82,7 +91,7 @@ export class OneShotExecution extends BaseExecution<OneShotScriptConfig> {
       // this script, which would affect the key.
       const fingerprint = await Fingerprint.compute(
         this.script,
-        dependencyFingerprints.value
+        dependencyResults.value
       );
       if (await this.#fingerprintIsFresh(fingerprint)) {
         return this.#handleFresh(fingerprint);
@@ -103,6 +112,13 @@ export class OneShotExecution extends BaseExecution<OneShotScriptConfig> {
       }
       if (cacheHit !== undefined) {
         return this.#handleCacheHit(cacheHit, fingerprint);
+      }
+
+      const servicesStarted = await this.#startServices(
+        dependencyResults.value
+      );
+      if (!servicesStarted.ok) {
+        return servicesStarted;
       }
 
       return this.#handleNeedsRun(fingerprint);
@@ -276,6 +292,21 @@ export class OneShotExecution extends BaseExecution<OneShotScriptConfig> {
     return {ok: true, value: {fingerprint, services: []}};
   }
 
+  async #startServices(
+    dependencyResults: Array<[ScriptReference, ExecutionResultData]>
+  ): Promise<Result<void, Failure[]>> {
+    const servicesStarted = [];
+    for (const [, {services}] of dependencyResults) {
+      for (const service of services) {
+        servicesStarted.push(service.start(this.#completed.promise));
+        void service.terminated.then(() => {
+          this.#serviceTerminated.resolve();
+        });
+      }
+    }
+    return aggregateFailures(await Promise.all(servicesStarted));
+  }
+
   /**
    * Handle the outcome where the script was stale and we need to run it.
    */
@@ -304,6 +335,10 @@ export class OneShotExecution extends BaseExecution<OneShotScriptConfig> {
         return {ok: false, error: this.#startCancelledEvent};
       }
 
+      // TODO(aomarks) We could also check for service terminations early here,
+      // in case they started and failed before we got a chance to start. No
+      // point starting the script in that case.
+
       this.logger.log({
         script: this.script,
         type: 'info',
@@ -317,6 +352,10 @@ export class OneShotExecution extends BaseExecution<OneShotScriptConfig> {
       );
 
       void this.executor.shouldKillRunningScripts.then(() => {
+        child.kill();
+      });
+
+      void this.#serviceTerminated.promise.then(() => {
         child.kill();
       });
 
@@ -372,6 +411,8 @@ export class OneShotExecution extends BaseExecution<OneShotScriptConfig> {
           // still inside the WorkerPool callback, we prevent this race
           // condition.
           this.executor.notifyFailure();
+          // TODO(aomarks) Consider a separate failure for when we killed
+          // because of a service termination.
         }
         return result;
       } finally {

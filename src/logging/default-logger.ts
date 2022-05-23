@@ -103,6 +103,10 @@ export class DefaultLogger implements Logger {
             console.log(`✅${prefix} Restored from cache`);
             break;
           }
+          case 'service-stopped': {
+            console.log(`✅${prefix} Service stopped successfully`);
+            break;
+          }
         }
         break;
       }
@@ -174,6 +178,10 @@ export class DefaultLogger implements Logger {
           case 'start-cancelled': {
             // The script never started. We don't really need to log this, it's
             // fairly noisy. Maybe in a verbose mode.
+            break;
+          }
+          case 'service-terminated-unexpectedly': {
+            console.error(`❌${prefix} Service terminated unexpectedly`);
             break;
           }
           case 'killed': {

@@ -135,6 +135,7 @@ export class WireitTestRigCommandInvocation {
   constructor(socket: net.Socket, command: WireitTestRigCommand) {
     this.#socket = socket;
     this.#socket.on('close', () => {
+      this.#state = 'closed';
       this.#socketClosed.resolve();
     });
     this.command = command;
@@ -154,6 +155,13 @@ export class WireitTestRigCommandInvocation {
   exit(code: number): void {
     this.#sendMessage({type: 'exit', code});
     this.#state = 'closed';
+  }
+
+  /**
+   * Synchronously check if this invocation is still running.
+   */
+  get running(): boolean {
+    return this.#state === 'connected';
   }
 
   /**

@@ -7,7 +7,11 @@
 import {NoOpExecution} from './execution/no-op.js';
 import {OneShotExecution} from './execution/one-shot.js';
 import {ServiceExecution} from './execution/service.js';
-import {ScriptConfig, scriptReferenceToString} from './script.js';
+import {
+  ScriptConfig,
+  scriptReferenceToString,
+  ServiceScriptConfig,
+} from './script.js';
 import {WorkerPool} from './util/worker-pool.js';
 import {Deferred} from './util/deferred.js';
 import {convertExceptionToFailure} from './error.js';
@@ -41,6 +45,8 @@ export class Executor {
   readonly #stopStartingNewScripts = new Deferred<void>();
   /** Resolves when we decide that running scripts should be killed. */
   readonly #killRunningScripts = new Deferred<void>();
+  /** Resolves when we decide that top-level services should be killed. */
+  readonly #killTopLevelServices = new Deferred<void>();
 
   constructor(
     logger: Logger,
@@ -59,6 +65,7 @@ export class Executor {
     void abort.promise.then(() => {
       this.#stopStartingNewScripts.resolve();
       this.#killRunningScripts.resolve();
+      this.#killTopLevelServices.resolve();
     });
 
     // If a failure occurs, then whether we stop starting new scripts or kill
@@ -112,6 +119,33 @@ export class Executor {
     return this.#killRunningScripts.promise;
   }
 
+  executeTopLevel(script: ScriptConfig): Promise<ExecutionResult> {
+    for (const service of this.findTopLevelServices(script)) {
+      void this.execute(service).then((result) => {
+        if (result.ok) {
+          for (const service of result.value.services) {
+            void service.start(this.#killTopLevelServices.promise);
+          }
+        }
+      });
+    }
+    return this.execute(script);
+  }
+
+  findTopLevelServices(
+    script: ScriptConfig,
+    services = new Set<ServiceScriptConfig>()
+  ): Set<ServiceScriptConfig> {
+    if (script.command === undefined) {
+      for (const dep of script.dependencies) {
+        this.findTopLevelServices(dep.config, services);
+      }
+    } else if (script.service) {
+      services.add(script);
+    }
+    return services;
+  }
+
   async execute(script: ScriptConfig): Promise<ExecutionResult> {
     const executionKey = scriptReferenceToString(script);
     let promise = this.#executions.get(executionKey);
@@ -121,6 +155,14 @@ export class Executor {
         .then((result) => {
           if (!result.ok) {
             this.notifyFailure();
+          } else {
+            for (const service of result.value.services) {
+              void service.terminated.then((result) => {
+                if (!result.ok) {
+                  this.notifyFailure();
+                }
+              });
+            }
           }
           return result;
         });
@@ -134,7 +176,7 @@ export class Executor {
       return NoOpExecution.execute(script, this, this.#logger);
     }
     if (script.service) {
-      return ServiceExecution.execute(script, this, this.#logger);
+      return ServiceExecution.prepare(script, this, this.#logger);
     }
     return OneShotExecution.execute(
       script,

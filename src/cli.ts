@@ -7,14 +7,15 @@
 import * as os from 'os';
 import * as fs from 'fs/promises';
 import * as pathlib from 'path';
-import {Result} from './error.js';
 import {DefaultLogger} from './logging/default-logger.js';
 import {Analyzer} from './analyzer.js';
 import {Executor} from './executor.js';
 import {WorkerPool} from './util/worker-pool.js';
 import {unreachable} from './util/unreachable.js';
 import {Deferred} from './util/deferred.js';
+// import {aggregateFailures} from './error.js';
 
+import type {Result} from './error.js';
 import type {ScriptReference} from './script.js';
 import type {Failure} from './event.js';
 import type {FailureMode} from './executor.js';
@@ -274,6 +275,7 @@ const run = async (): Promise<Result<void, Failure[]>> => {
     if (!analyzedResult.ok) {
       return analyzedResult;
     }
+
     const executor = new Executor(
       logger,
       workerPool,
@@ -281,10 +283,30 @@ const run = async (): Promise<Result<void, Failure[]>> => {
       options.failureMode,
       abort
     );
-    const result = await executor.execute(analyzedResult.value);
+    const result = await executor.executeTopLevel(analyzedResult.value);
     if (!result.ok) {
       return result;
     }
+
+    // if (result.value.services.length > 0) {
+    //   const servicesTerminated = [];
+    //   for (const service of result.value.services) {
+    //     // Start the service, and tell it to terminate when this top-level
+    //     // process aborts. We could abort either because of SIGINT or ...
+    //     void service.start(abort.promise);
+    //     // ... if any service terminates unexpectedly.
+    //     void service.terminated.then(() => {
+    //       abort.resolve();
+    //     });
+    //     servicesTerminated.push(service.terminated);
+    //   }
+    //   const servicesResult = aggregateFailures(
+    //     await Promise.all(servicesTerminated)
+    //   );
+    //   if (!servicesResult.ok) {
+    //     return servicesResult;
+    //   }
+    // }
   }
   return {ok: true, value: undefined};
 };
