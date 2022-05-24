@@ -149,6 +149,25 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
     return [...consumers];
   }
 
+  #numConsumers = 0;
+
+  /**
+   * Prevent this service from stopping after it is started, until
+   * {@link unimmortalize} is called.
+   */
+  addConsumer(releaseConsumer: Promise<void>): void {
+    console.log(this.script.name, 'ADD CONSUMER', this.#state.state);
+    this.#numConsumers++;
+    void releaseConsumer
+      .catch(() => undefined)
+      .then(() => {
+        this.#numConsumers--;
+        if (this.#numConsumers <= 0) {
+          this.#onAllConsumersReleased();
+        }
+      });
+  }
+
   /**
    * The first consumer who calls this function will trigger this service to
    * start running.
@@ -373,6 +392,32 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
           void this.#state.child.kill();
           this.#state = {state: 'stopping'};
         }
+        return;
+      }
+      case 'failed':
+      case 'failing': {
+        return;
+      }
+      case 'starting':
+      case 'initial':
+      case 'fingerprinting':
+      case 'awaiting-first-consumer':
+      case 'stopping':
+      case 'stopped': {
+        throw unexpectedState(this.#state);
+      }
+      default: {
+        throw unknownState(this.#state);
+      }
+    }
+  }
+
+  #onAllConsumersReleased(): void {
+    console.log(this.script.name, 'ALL CONSUMERS RELEASED', this.#state.state);
+    switch (this.#state.state) {
+      case 'started': {
+        void this.#state.child.kill();
+        this.#state = {state: 'stopping'};
         return;
       }
       case 'failed':

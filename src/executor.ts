@@ -124,6 +124,8 @@ export class Executor {
       void this.execute(service).then((result) => {
         if (result.ok) {
           for (const service of result.value.services) {
+            void service.addConsumer(this.#killTopLevelServices.promise);
+            // TODO(aomarks) Errors
             void service.start(this.#killTopLevelServices.promise);
           }
         }

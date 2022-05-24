@@ -1059,9 +1059,10 @@ export class Analyzer {
         ...config,
         state: 'valid',
         dependencies: config.dependencies as Array<Dependency<ScriptConfig>>,
-        reverseDependencies: config.reverseDependencies as Array<
-          Dependency<ScriptConfig>
-        >,
+        reverseDependencies:
+          (config.reverseDependencies as
+            | Array<Dependency<ScriptConfig>>
+            | undefined) ?? [],
       };
       // We want to keep the original reference, but get type checking that
       // the only difference between a ScriptConfig and a
