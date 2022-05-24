@@ -76,6 +76,7 @@ export class Watcher {
   readonly #cache?: Cache;
   readonly #failureMode: FailureMode;
   readonly #abort: Deferred<void>;
+  #currentExecutor?: Executor;
 
   /** Whether an executor is currently running. */
   #executing = false;
@@ -169,14 +170,14 @@ export class Watcher {
       for (const {patterns, cwd} of this.#getWatchPathGroups(analysis)) {
         this.#watchPatterns(patterns, cwd);
       }
-      const executor = new Executor(
+      this.#currentExecutor = new Executor(
         this.#logger,
         this.#workerPool,
         this.#cache,
         this.#failureMode,
         this.#abort
       );
-      const result = await executor.execute(analysis);
+      const result = await this.#currentExecutor.executeTopLevel(analysis);
       if (!result.ok) {
         for (const error of result.error) {
           this.#logger.log(error);
@@ -215,9 +216,11 @@ export class Watcher {
    * One of the paths we are watching has been created or modified.
    */
   readonly #fileAddedOrChanged = (): void => {
+    console.log('xxxxxxxxxxxxxxx FILE CHANGED');
     // TODO(aomarks) Cache package JSONS, globs, and hashes.
     this.#stale = true;
     this.#update.resolve();
+    this.#currentExecutor?.killTopLevelServices();
   };
 
   /**

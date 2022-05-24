@@ -22,7 +22,7 @@ export class NoOpExecution extends BaseExecution<NoOpScriptConfig> {
     return this.#done.promise;
   }
 
-  async execute(): Promise<ExecutionResult> {
+  async fingerprint(): Promise<ExecutionResult> {
     const dependencyResults = await this.executeDependencies();
     if (!dependencyResults.ok) {
       return dependencyResults;

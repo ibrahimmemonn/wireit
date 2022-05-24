@@ -295,10 +295,6 @@ test(
 
     assert.equal(service.numInvocations, 1);
     assert.equal(consumer.numInvocations, 1);
-
-    // The problem here is that execute() doesn't return until all the one-shots
-    // are done, so cli doesn't call start() on the service until that's
-    // happened, at which point the service has already started shutting down.
   })
 );
 
@@ -379,6 +375,80 @@ test(
     assert.equal((await wireit.exit).code, 1);
     assert.equal(service1.numInvocations, 1);
     assert.equal(service2.numInvocations, 1);
+  })
+);
+
+test.only(
+  'consumer plus top-level in watch mode',
+  timeout(async ({rig}) => {
+    const service = await rig.newCommand();
+    const consumer = await rig.newCommand();
+    await rig.write({
+      'package.json': {
+        scripts: {
+          main: 'wireit',
+          service: 'wireit',
+          consumer: 'wireit',
+        },
+        wireit: {
+          main: {
+            dependencies: ['service', 'consumer'],
+          },
+          service: {
+            service: true,
+            command: service.command,
+            files: ['input/service'],
+          },
+          consumer: {
+            command: consumer.command,
+            dependencies: ['service'],
+            files: ['input/consumer'],
+          },
+        },
+      },
+      'input/service': 'v1',
+      'input/consumer': 'v1',
+    });
+
+    const wireit = rig.exec('npm run main watch');
+
+    const serviceInv1 = await service.nextInvocation();
+    const consumerInv1 = await consumer.nextInvocation();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.ok(serviceInv1.running);
+    consumerInv1.exit(0);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.ok(serviceInv1.running);
+
+    // Changing the service input should cause the service to restart, and the
+    // consumer to re-run.
+    await rig.write('input/service', 'v2');
+    await serviceInv1.closed;
+    const serviceInv2 = await service.nextInvocation();
+    const consumerInv2 = await consumer.nextInvocation();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.ok(serviceInv2.running);
+    consumerInv2.exit(0);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.ok(serviceInv2.running);
+
+    // Changing the consumer input should cause the consumer to re-run, but the
+    // server to stay alive.
+    await rig.write('input/consumer', 'v2');
+    await serviceInv2.closed;
+    const consumerInv3 = await consumer.nextInvocation();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.ok(serviceInv2.running);
+    consumerInv3.exit(0);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.ok(serviceInv2.running);
+
+    wireit.kill();
+    await serviceInv2.closed;
+    await wireit.exit;
+
+    assert.equal(service.numInvocations, 2);
+    assert.equal(consumer.numInvocations, 3);
   })
 );
 

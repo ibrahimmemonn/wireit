@@ -13,6 +13,8 @@ import type {ExecutionResult} from './base.js';
 import type {ScriptConfig, ServiceScriptConfig} from '../script.js';
 import type {Result} from '../error.js';
 import type {Failure} from '../event.js';
+import type {Executor} from '../executor.js';
+import type {Logger} from '../logging/logger.js';
 
 /**
  * Possible states of a {@link ServiceExecution}.
@@ -27,12 +29,10 @@ type ServiceExecutionState =
   | {
       state: 'starting';
       child: Deferred<ScriptChildProcess>;
-      numConsumers: number;
     }
   | {
       state: 'started';
       child: ScriptChildProcess;
-      numConsumers: number;
     }
   | {state: 'stopping'}
   | {state: 'stopped'}
@@ -53,6 +53,16 @@ const unexpectedState = (state: ServiceExecutionState) => {
 export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
   #state: ServiceExecutionState = {state: 'initial'};
 
+  /**
+   * The number of consumers who may still need this service to be running. This
+   * number is incremented by {@link addConsumer}.
+   */
+  #numConsumers = 0;
+
+  constructor(script: ServiceScriptConfig, executor: Executor, logger: Logger) {
+    super(script, executor, logger);
+  }
+
   readonly #done = new Deferred<Result<void, Failure[]>>();
   override get done() {
     return this.#done.promise;
@@ -62,8 +72,8 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
    * Prepare to run, but don't actually run yet until a consumer calls
    * {@link start}.
    */
-  async execute(): Promise<ExecutionResult> {
-    console.log(this.script.name, 'EXECUTE', this.#state.state);
+  async fingerprint(): Promise<ExecutionResult> {
+    console.log(this.script.name, 'FINGERPRINT', this.#state.state);
     switch (this.#state.state) {
       case 'initial': {
         this.#state = {state: 'fingerprinting'};
@@ -134,8 +144,6 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
     return [...consumers];
   }
 
-  #numConsumers = 0;
-
   /**
    * Prevent this service from stopping after it is started, until
    * {@link unimmortalize} is called.
@@ -170,7 +178,6 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
         this.#state = {
           state: 'starting',
           child,
-          numConsumers: 0,
         };
         // this.#registerConsumer(consumerDone);
         // TODO(aomarks) Errors?
@@ -216,7 +223,6 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
         this.#state = {
           state: 'started',
           child,
-          numConsumers: consumers.length,
         };
 
         child.stdout.on('data', (data: string | Buffer) => {

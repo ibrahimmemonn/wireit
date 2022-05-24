@@ -110,6 +110,11 @@ export class Executor {
     this.#failureOccured.resolve();
   }
 
+  killTopLevelServices(): void {
+    console.log('KILL TOP LEVEL');
+    this.#killTopLevelServices.resolve();
+  }
+
   /**
    * Synchronously check if new scripts should stop being started.
    */
@@ -176,8 +181,20 @@ export class Executor {
     let promise = this.#executionResults.get(executionKey);
     if (promise === undefined) {
       const execution = this.getExecution(script);
-      promise = execution
-        .execute()
+      let p;
+      if (execution instanceof OneShotExecution) {
+        p = execution.execute();
+      } else if (execution instanceof NoOpExecution) {
+        p = execution.fingerprint();
+      } else if (execution instanceof ServiceExecution) {
+        p = execution.fingerprint();
+      } else {
+        const never: never = execution;
+        throw new Error(
+          `Unknown execution type ${(never as object).constructor.name}`
+        );
+      }
+      promise = p
         .catch((error) => convertExceptionToFailure(error, script))
         .then((result) => {
           if (!result.ok) {
