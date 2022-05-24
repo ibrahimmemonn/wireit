@@ -180,38 +180,43 @@ test(
 test(
   'service stays running until all consumers are done',
   timeout(async ({rig}) => {
+    //  main
+    //   / \          A and B both depend on the service. C is going to
+    //  A   B --> C   block B from running until A is done. The service
+    //  |   |         should stay running until A and B are both done.
+    //  v   v
+    // service
     const service = await rig.newCommand();
-    const consumer1 = await rig.newCommand();
-    const consumer2 = await rig.newCommand();
-    const consumer3 = await rig.newCommand();
+    const a = await rig.newCommand();
+    const b = await rig.newCommand();
+    const c = await rig.newCommand();
     await rig.write({
       'package.json': {
         scripts: {
           main: 'wireit',
           service: 'wireit',
-          consumer1: 'wireit',
-          consumer2: 'wireit',
-          consumer3: 'wireit',
+          a: 'wireit',
+          b: 'wireit',
+          c: 'wireit',
         },
         wireit: {
           main: {
-            dependencies: ['consumer1', 'consumer2', 'consumer3'],
+            dependencies: ['a', 'b'],
           },
           service: {
             service: true,
             command: service.command,
           },
-          consumer1: {
-            command: consumer1.command,
+          a: {
+            command: a.command,
             dependencies: ['service'],
           },
-          consumer2: {
-            command: consumer2.command,
-            dependencies: ['service'],
+          b: {
+            command: b.command,
+            dependencies: ['service', 'c'],
           },
-          consumer3: {
-            command: consumer3.command,
-            dependencies: ['service'],
+          c: {
+            command: c.command,
           },
         },
       },
@@ -219,28 +224,27 @@ test(
 
     const wireit = rig.exec('npm run main');
     const serviceInv = await service.nextInvocation();
-    const consumer1Inv = await consumer1.nextInvocation();
-    const consumer2Inv = await consumer2.nextInvocation();
-    const consumer3Inv = await consumer3.nextInvocation();
+    const aInv = await a.nextInvocation();
+    const cInv = await c.nextInvocation();
     await new Promise((resolve) => setTimeout(resolve, 10));
     assert.ok(serviceInv.running);
 
-    consumer1Inv.exit(0);
+    aInv.exit(0);
     await new Promise((resolve) => setTimeout(resolve, 10));
     assert.ok(serviceInv.running);
 
-    consumer2Inv.exit(0);
+    cInv.exit(0);
+    const bInv = await b.nextInvocation();
     await new Promise((resolve) => setTimeout(resolve, 10));
     assert.ok(serviceInv.running);
 
-    consumer3Inv.exit(0);
+    bInv.exit(0);
     await serviceInv.closed;
-    assert.not(serviceInv.running);
     assert.equal((await wireit.exit).code, 0);
     assert.equal(service.numInvocations, 1);
-    assert.equal(consumer1.numInvocations, 1);
-    assert.equal(consumer2.numInvocations, 1);
-    assert.equal(consumer3.numInvocations, 1);
+    assert.equal(a.numInvocations, 1);
+    assert.equal(b.numInvocations, 1);
+    assert.equal(c.numInvocations, 1);
   })
 );
 
@@ -338,7 +342,7 @@ test(
   })
 );
 
-test.only(
+test.skip(
   'service stops when service dependency fails',
   timeout(async ({rig}) => {
     const service1 = await rig.newCommand();
@@ -381,6 +385,5 @@ test.only(
 // TODO(aomarks) Service failures
 // TODO(aomarks) Watch mode
 // TODO(aomarks) Locking
-// TODO(aomarks) Are we sure that we will find all consumers before we stop?
 
 test.run();

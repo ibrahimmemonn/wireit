@@ -11,7 +11,7 @@ import {Deferred} from '../util/deferred.js';
 
 import type {ExecutionResult} from './base.js';
 import type {Executor} from '../executor.js';
-import type {ServiceScriptConfig} from '../script.js';
+import type {ScriptConfig, ServiceScriptConfig} from '../script.js';
 import type {Logger} from '../logging/logger.js';
 import type {Result} from '../error.js';
 
@@ -78,7 +78,7 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
    * {@link start}.
    */
   async #prepare(): Promise<ExecutionResult> {
-    console.log('EXECUTE', this.#state.state);
+    console.log(this.script.name, 'EXECUTE', this.#state.state);
     switch (this.#state.state) {
       case 'initial': {
         this.#state = {state: 'fingerprinting'};
@@ -122,11 +122,39 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
   }
 
   /**
+   * Find the scripts that may need this service to start.
+   *
+   * Accounts for the fact that we need to walk through no-op scripts, because
+   * if a script A depends on no-op script B, and B depends on service C, then A
+   * depends on service C.
+   */
+  #findConsumersOfThisService(): ScriptConfig[] {
+    if (this.script.reverseDependencies.length === 0) {
+      return [];
+    }
+    const consumers = new Set<ScriptConfig>();
+    const stack: ScriptConfig[] = [this.script];
+    while (stack.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const current = stack.pop()!;
+      for (const {config} of current.reverseDependencies) {
+        const isNoOp = config.command === undefined;
+        if (isNoOp) {
+          stack.push(config);
+        } else {
+          consumers.add(config);
+        }
+      }
+    }
+    return [...consumers];
+  }
+
+  /**
    * The first consumer who calls this function will trigger this service to
    * start running.
    */
   start(consumerDone: Promise<unknown>): Promise<Result<void>> {
-    console.log('START', this.#state.state);
+    console.log(this.script.name, 'START', this.#state.state);
     switch (this.#state.state) {
       case 'awaiting-first-consumer': {
         const servicesStarted = [];
@@ -170,17 +198,25 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
   }
 
   #onAllServicesStarted(): void {
-    console.log('ALL SERVICES STARTED', this.#state.state);
+    console.log(this.script.name, 'ALL SERVICES STARTED', this.#state.state);
     switch (this.#state.state) {
       case 'starting': {
         const child = new ScriptChildProcess(this.script);
         this.#state.child.resolve(child);
+
+        const consumers = this.#findConsumersOfThisService();
+        for (const consumer of consumers) {
+          // TODO(aomarks) It feels a little weird to "execute" this script, but
+          // I'm pretty sure it's safe.
+          const consumerResolved = this.executor.execute(consumer);
+          void consumerResolved.then(() => this.#onConsumerTerminated());
+        }
+
         this.#state = {
           state: 'started',
           child,
-          numConsumers: this.#state.numConsumers,
+          numConsumers: consumers.length,
         };
-        void child.completed.then((result) => this.#onChildTerminated(result));
 
         child.stdout.on('data', (data: string | Buffer) => {
           this.logger.log({
@@ -199,6 +235,8 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
             data,
           });
         });
+
+        void child.completed.then((result) => this.#onChildTerminated(result));
 
         return;
       }
@@ -221,7 +259,7 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
   }
 
   #onServiceTerminated(): void {
-    console.log('SERVICE TERMINATED', this.#state.state);
+    console.log(this.script.name, 'SERVICE TERMINATED', this.#state.state);
     switch (this.#state.state) {
       case 'starting': {
         this.#state = {state: 'failed'};
@@ -250,7 +288,7 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
   }
 
   #onChildTerminated(result: Awaited<ScriptChildProcess['completed']>): void {
-    console.log('CHILD TERMINATED', this.#state.state, result);
+    console.log(this.script.name, 'CHILD TERMINATED', this.#state.state);
     switch (this.#state.state) {
       case 'started':
       case 'stopping':
@@ -301,15 +339,12 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
     }
   }
 
-  #registerConsumer(consumer: Promise<unknown>): void {
-    console.log('REGISTER CONSUMER', this.#state.state);
+  #registerConsumer(_consumer: Promise<unknown>): void {
+    console.log(this.script.name, 'REGISTER CONSUMER', this.#state.state);
     switch (this.#state.state) {
       case 'starting':
       case 'started': {
-        this.#state.numConsumers++;
-        void consumer.then(() => {
-          this.#onConsumerTerminated();
-        });
+        // this.#state.numConsumers++;
         return;
       }
       case 'failed':
@@ -330,15 +365,8 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
   }
 
   #onConsumerTerminated(): void {
-    console.log('CONSUMER TERMINATED', this.#state.state);
+    console.log(this.script.name, 'CONSUMER TERMINATED', this.#state.state);
     switch (this.#state.state) {
-      case 'starting': {
-        this.#state.numConsumers--;
-        if (this.#state.numConsumers <= 0) {
-          this.#state = {state: 'stopped'};
-        }
-        return;
-      }
       case 'started': {
         this.#state.numConsumers--;
         if (this.#state.numConsumers <= 0) {
@@ -351,6 +379,7 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
       case 'failing': {
         return;
       }
+      case 'starting':
       case 'initial':
       case 'fingerprinting':
       case 'awaiting-first-consumer':
