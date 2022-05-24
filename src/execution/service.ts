@@ -56,16 +56,6 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
   get done() {
     return this.#done.promise;
   }
-  /**
-   * Resolves when this service has terminated for any reason.
-   *
-   * Consumers of this service should listen for this event, and consider it an
-   * error if the service terminates before the consumer finished.
-   */
-  get terminated(): Promise<Result<void>> {
-    return this.#terminated.promise;
-  }
-  readonly #terminated = new Deferred<Result<void>>();
 
   /**
    * Prepare to run, but don't actually run yet until a consumer calls
@@ -166,14 +156,14 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
    * The first consumer who calls this function will trigger this service to
    * start running.
    */
-  start(_consumerDone: Promise<unknown>): Promise<Result<void>> {
+  start(): Promise<Result<void>> {
     console.log(this.script.name, 'START', this.#state.state);
     switch (this.#state.state) {
       case 'awaiting-first-consumer': {
         const servicesStarted = [];
         for (const service of this.#state.services) {
-          servicesStarted.push(service.start(this.terminated));
-          void service.terminated.then(() => this.#onServiceTerminated());
+          servicesStarted.push(service.start());
+          void service.done.then(() => this.#onServiceTerminated());
         }
         const child = new Deferred<ScriptChildProcess>();
         this.#state = {
@@ -314,7 +304,6 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
           // an unexpected termination.
           this.#state = {state: 'stopped'};
           this.#done.resolve();
-          this.#terminated.resolve({ok: true, value: undefined});
           this.logger.log({
             script: this.script,
             type: 'success',
@@ -327,14 +316,6 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
           // error somehow.
           this.#state = {state: 'failed'};
           this.#done.resolve();
-          this.#terminated.resolve({
-            ok: false,
-            error: {
-              script: this.script,
-              type: 'failure',
-              reason: 'service-terminated-unexpectedly',
-            },
-          });
         }
         return;
       }

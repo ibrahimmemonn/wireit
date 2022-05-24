@@ -286,8 +286,8 @@ export class OneShotExecution extends BaseExecution<OneShotScriptConfig> {
     const servicesStarted = [];
     for (const [, {services}] of dependencyResults) {
       for (const service of services) {
-        servicesStarted.push(service.start(this.#done.promise));
-        void service.terminated.then(() => {
+        servicesStarted.push(service.start());
+        void service.done.then(() => {
           this.#serviceTerminated.resolve();
         });
       }

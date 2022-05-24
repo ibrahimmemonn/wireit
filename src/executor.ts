@@ -130,7 +130,7 @@ export class Executor {
           for (const service of result.value.services) {
             void service.addConsumer(this.#killTopLevelServices.promise);
             // TODO(aomarks) Errors
-            void service.start(this.#killTopLevelServices.promise);
+            void service.start();
           }
         }
       });
@@ -164,13 +164,15 @@ export class Executor {
           if (!result.ok) {
             this.notifyFailure();
           } else {
-            for (const service of result.value.services) {
-              void service.terminated.then((result) => {
-                if (!result.ok) {
-                  this.notifyFailure();
-                }
-              });
-            }
+            // TODO(aomarks) Handle errors here. Done should have the error.
+            //
+            // for (const service of result.value.services) {
+            //   void service.done.then((result) => {
+            //     if (!result.ok) {
+            //       this.notifyFailure();
+            //     }
+            //   });
+            // }
           }
           return result;
         });
