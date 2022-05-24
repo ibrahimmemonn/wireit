@@ -39,11 +39,17 @@ export abstract class BaseExecution<T extends ScriptConfig> {
   protected readonly executor: Executor;
   protected readonly logger: Logger;
 
-  protected constructor(script: T, executor: Executor, logger: Logger) {
+  constructor(script: T, executor: Executor, logger: Logger) {
     this.script = script;
     this.executor = executor;
     this.logger = logger;
   }
+
+  /**
+   * This promise should resolve when the script has completely finished
+   * running, or has no chance of ever running.
+   */
+  abstract done: Promise<void>;
 
   /**
    * Execute all of this script's dependencies.

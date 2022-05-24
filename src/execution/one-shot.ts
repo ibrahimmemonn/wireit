@@ -33,28 +33,16 @@ import {Failure, StartCancelled} from '../event.js';
  * Execution for a {@link OneShotScriptConfig}.
  */
 export class OneShotExecution extends BaseExecution<OneShotScriptConfig> {
-  static execute(
-    script: OneShotScriptConfig,
-    executor: Executor,
-    workerPool: WorkerPool,
-    cache: Cache | undefined,
-    logger: Logger
-  ): Promise<ExecutionResult> {
-    return new OneShotExecution(
-      script,
-      executor,
-      workerPool,
-      cache,
-      logger
-    ).#execute();
-  }
-
   readonly #cache?: Cache;
   readonly #workerPool: WorkerPool;
-  readonly #completed = new Deferred<void>();
   readonly #serviceTerminated = new Deferred<void>();
 
-  private constructor(
+  readonly #done = new Deferred<void>();
+  get done() {
+    return this.#done.promise;
+  }
+
+  constructor(
     script: OneShotScriptConfig,
     executor: Executor,
     workerPool: WorkerPool,
@@ -66,9 +54,9 @@ export class OneShotExecution extends BaseExecution<OneShotScriptConfig> {
     this.#cache = cache;
   }
 
-  async #execute(): Promise<ExecutionResult> {
+  async execute(): Promise<ExecutionResult> {
     const result = await this.#actuallyExecute();
-    this.#completed.resolve();
+    this.#done.resolve();
     return result;
   }
 
@@ -298,7 +286,7 @@ export class OneShotExecution extends BaseExecution<OneShotScriptConfig> {
     const servicesStarted = [];
     for (const [, {services}] of dependencyResults) {
       for (const service of services) {
-        servicesStarted.push(service.start(this.#completed.promise));
+        servicesStarted.push(service.start(this.#done.promise));
         void service.terminated.then(() => {
           this.#serviceTerminated.resolve();
         });

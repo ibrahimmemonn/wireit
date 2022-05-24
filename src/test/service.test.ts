@@ -303,7 +303,7 @@ test(
 );
 
 test(
-  'service depends on another service',
+  'top-level service depends on another service',
   timeout(async ({rig}) => {
     const service1 = await rig.newCommand();
     const service2 = await rig.newCommand();
@@ -342,7 +342,7 @@ test(
   })
 );
 
-test.skip(
+test(
   'service stops when service dependency fails',
   timeout(async ({rig}) => {
     const service1 = await rig.newCommand();

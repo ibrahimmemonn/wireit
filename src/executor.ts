@@ -9,6 +9,7 @@ import {OneShotExecution} from './execution/one-shot.js';
 import {ServiceExecution} from './execution/service.js';
 import {
   ScriptConfig,
+  ScriptReferenceString,
   scriptReferenceToString,
   ServiceScriptConfig,
 } from './script.js';
@@ -30,11 +31,14 @@ import type {Cache} from './caching/cache.js';
  */
 export type FailureMode = 'no-new' | 'continue' | 'kill';
 
+type Execution = NoOpExecution | OneShotExecution | ServiceExecution;
+
 /**
  * Executes a script that has been analyzed and validated by the Analyzer.
  */
 export class Executor {
-  readonly #executions = new Map<string, Promise<ExecutionResult>>();
+  readonly #executionResults = new Map<string, Promise<ExecutionResult>>();
+  readonly #executions = new Map<ScriptReferenceString, Execution>();
   readonly #logger: Logger;
   readonly #workerPool: WorkerPool;
   readonly #cache?: Cache;
@@ -150,9 +154,11 @@ export class Executor {
 
   async execute(script: ScriptConfig): Promise<ExecutionResult> {
     const executionKey = scriptReferenceToString(script);
-    let promise = this.#executions.get(executionKey);
+    let promise = this.#executionResults.get(executionKey);
     if (promise === undefined) {
-      promise = this.#executeAccordingToKind(script)
+      const execution = this.getExecution(script);
+      promise = execution
+        .execute()
         .catch((error) => convertExceptionToFailure(error, script))
         .then((result) => {
           if (!result.ok) {
@@ -168,19 +174,29 @@ export class Executor {
           }
           return result;
         });
-      this.#executions.set(executionKey, promise);
+      this.#executionResults.set(executionKey, promise);
     }
     return promise;
   }
 
-  #executeAccordingToKind(script: ScriptConfig): Promise<ExecutionResult> {
+  getExecution(script: ScriptConfig): Execution {
+    const executionKey = scriptReferenceToString(script);
+    let execution = this.#executions.get(executionKey);
+    if (execution === undefined) {
+      execution = this.#makeExecutionAccordingToKind(script);
+      this.#executions.set(executionKey, execution);
+    }
+    return execution;
+  }
+
+  #makeExecutionAccordingToKind(script: ScriptConfig): Execution {
     if (script.command === undefined) {
-      return NoOpExecution.execute(script, this, this.#logger);
+      return new NoOpExecution(script, this, this.#logger);
     }
     if (script.service) {
-      return ServiceExecution.prepare(script, this, this.#logger);
+      return new ServiceExecution(script, this, this.#logger);
     }
-    return OneShotExecution.execute(
+    return new OneShotExecution(
       script,
       this,
       this.#workerPool,

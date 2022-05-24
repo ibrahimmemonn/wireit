@@ -6,25 +6,21 @@
 
 import {BaseExecution} from './base.js';
 import {Fingerprint} from '../fingerprint.js';
+import {Deferred} from '../util/deferred.js';
 
 import type {ExecutionResult} from './base.js';
-import type {Executor} from '../executor.js';
 import type {NoOpScriptConfig} from '../script.js';
-import type {Logger} from '../logging/logger.js';
 
 /**
  * Execution for a {@link NoOpScriptConfig}.
  */
 export class NoOpExecution extends BaseExecution<NoOpScriptConfig> {
-  static execute(
-    script: NoOpScriptConfig,
-    executor: Executor,
-    logger: Logger
-  ): Promise<ExecutionResult> {
-    return new NoOpExecution(script, executor, logger).#execute();
+  readonly #done = new Deferred<void>();
+  get done() {
+    return this.#done.promise;
   }
 
-  async #execute(): Promise<ExecutionResult> {
+  async execute(): Promise<ExecutionResult> {
     const dependencyResults = await this.executeDependencies();
     if (!dependencyResults.ok) {
       return dependencyResults;
@@ -47,6 +43,9 @@ export class NoOpExecution extends BaseExecution<NoOpScriptConfig> {
       type: 'success',
       reason: 'no-command',
     });
+
+    this.#done.resolve();
+
     return {ok: true, value: {fingerprint, services}};
   }
 }

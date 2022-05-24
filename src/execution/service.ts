@@ -10,9 +10,7 @@ import {ScriptChildProcess} from '../script-child-process.js';
 import {Deferred} from '../util/deferred.js';
 
 import type {ExecutionResult} from './base.js';
-import type {Executor} from '../executor.js';
 import type {ScriptConfig, ServiceScriptConfig} from '../script.js';
-import type {Logger} from '../logging/logger.js';
 import type {Result} from '../error.js';
 
 /**
@@ -52,16 +50,12 @@ const unexpectedState = (state: ServiceExecutionState) => {
  * Execution for a {@link ServiceScriptConfig}.
  */
 export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
-  static prepare(
-    script: ServiceScriptConfig,
-    executor: Executor,
-    logger: Logger
-  ): Promise<ExecutionResult> {
-    return new ServiceExecution(script, executor, logger).#prepare();
-  }
-
   #state: ServiceExecutionState = {state: 'initial'};
 
+  readonly #done = new Deferred<void>();
+  get done() {
+    return this.#done.promise;
+  }
   /**
    * Resolves when this service has terminated for any reason.
    *
@@ -77,7 +71,7 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
    * Prepare to run, but don't actually run yet until a consumer calls
    * {@link start}.
    */
-  async #prepare(): Promise<ExecutionResult> {
+  async execute(): Promise<ExecutionResult> {
     console.log(this.script.name, 'EXECUTE', this.#state.state);
     switch (this.#state.state) {
       case 'initial': {
@@ -172,7 +166,7 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
    * The first consumer who calls this function will trigger this service to
    * start running.
    */
-  start(consumerDone: Promise<unknown>): Promise<Result<void>> {
+  start(_consumerDone: Promise<unknown>): Promise<Result<void>> {
     console.log(this.script.name, 'START', this.#state.state);
     switch (this.#state.state) {
       case 'awaiting-first-consumer': {
@@ -187,7 +181,7 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
           child,
           numConsumers: 0,
         };
-        this.#registerConsumer(consumerDone);
+        // this.#registerConsumer(consumerDone);
         // TODO(aomarks) Errors?
         void Promise.all(servicesStarted).then(() =>
           this.#onAllServicesStarted()
@@ -195,11 +189,11 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
         return child.promise.then((child) => child.spawned);
       }
       case 'starting': {
-        this.#registerConsumer(consumerDone);
+        // this.#registerConsumer(consumerDone);
         return this.#state.child.promise.then((child) => child.spawned);
       }
       case 'started': {
-        this.#registerConsumer(consumerDone);
+        // this.#registerConsumer(consumerDone);
         return this.#state.child.spawned;
       }
       case 'initial':
@@ -225,10 +219,7 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
 
         const consumers = this.#findConsumersOfThisService();
         for (const consumer of consumers) {
-          // TODO(aomarks) It feels a little weird to "execute" this script, but
-          // I'm pretty sure it's safe.
-          const consumerResolved = this.executor.execute(consumer);
-          void consumerResolved.then(() => this.#onConsumerTerminated());
+          this.addConsumer(this.executor.getExecution(consumer).done);
         }
 
         this.#state = {
@@ -282,6 +273,7 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
     switch (this.#state.state) {
       case 'starting': {
         this.#state = {state: 'failed'};
+        this.#done.resolve();
         return;
       }
       case 'started': {
@@ -321,6 +313,7 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
           // should only ever terminate because it was killed. Anything else is
           // an unexpected termination.
           this.#state = {state: 'stopped'};
+          this.#done.resolve();
           this.#terminated.resolve({ok: true, value: undefined});
           this.logger.log({
             script: this.script,
@@ -333,6 +326,7 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
           // one-shot. Or maybe it should actually be the propagated failure
           // error somehow.
           this.#state = {state: 'failed'};
+          this.#done.resolve();
           this.#terminated.resolve({
             ok: false,
             error: {
@@ -350,60 +344,6 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
       case 'starting':
       case 'stopped':
       case 'failed': {
-        throw unexpectedState(this.#state);
-      }
-      default: {
-        throw unknownState(this.#state);
-      }
-    }
-  }
-
-  #registerConsumer(_consumer: Promise<unknown>): void {
-    console.log(this.script.name, 'REGISTER CONSUMER', this.#state.state);
-    switch (this.#state.state) {
-      case 'starting':
-      case 'started': {
-        // this.#state.numConsumers++;
-        return;
-      }
-      case 'failed':
-      case 'failing': {
-        return;
-      }
-      case 'initial':
-      case 'fingerprinting':
-      case 'awaiting-first-consumer':
-      case 'stopping':
-      case 'stopped': {
-        throw unexpectedState(this.#state);
-      }
-      default: {
-        throw unknownState(this.#state);
-      }
-    }
-  }
-
-  #onConsumerTerminated(): void {
-    console.log(this.script.name, 'CONSUMER TERMINATED', this.#state.state);
-    switch (this.#state.state) {
-      case 'started': {
-        this.#state.numConsumers--;
-        if (this.#state.numConsumers <= 0) {
-          void this.#state.child.kill();
-          this.#state = {state: 'stopping'};
-        }
-        return;
-      }
-      case 'failed':
-      case 'failing': {
-        return;
-      }
-      case 'starting':
-      case 'initial':
-      case 'fingerprinting':
-      case 'awaiting-first-consumer':
-      case 'stopping':
-      case 'stopped': {
         throw unexpectedState(this.#state);
       }
       default: {
