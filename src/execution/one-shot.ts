@@ -37,8 +37,8 @@ export class OneShotExecution extends BaseExecution<OneShotScriptConfig> {
   readonly #workerPool: WorkerPool;
   readonly #serviceTerminated = new Deferred<void>();
 
-  readonly #done = new Deferred<void>();
-  get done() {
+  readonly #done = new Deferred<Result<void, Failure[]>>();
+  override get done() {
     return this.#done.promise;
   }
 
@@ -56,7 +56,11 @@ export class OneShotExecution extends BaseExecution<OneShotScriptConfig> {
 
   async execute(): Promise<ExecutionResult> {
     const result = await this.#actuallyExecute();
-    this.#done.resolve();
+    if (!result.ok) {
+      this.#done.resolve(result);
+    } else {
+      this.#done.resolve({ok: true, value: undefined});
+    }
     return result;
   }
 

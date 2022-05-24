@@ -287,26 +287,6 @@ const run = async (): Promise<Result<void, Failure[]>> => {
     if (!result.ok) {
       return result;
     }
-
-    // if (result.value.services.length > 0) {
-    //   const servicesTerminated = [];
-    //   for (const service of result.value.services) {
-    //     // Start the service, and tell it to terminate when this top-level
-    //     // process aborts. We could abort either because of SIGINT or ...
-    //     void service.start(abort.promise);
-    //     // ... if any service terminates unexpectedly.
-    //     void service.terminated.then(() => {
-    //       abort.resolve();
-    //     });
-    //     servicesTerminated.push(service.terminated);
-    //   }
-    //   const servicesResult = aggregateFailures(
-    //     await Promise.all(servicesTerminated)
-    //   );
-    //   if (!servicesResult.ok) {
-    //     return servicesResult;
-    //   }
-    // }
   }
   return {ok: true, value: undefined};
 };

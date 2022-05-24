@@ -10,13 +10,15 @@ import {Deferred} from '../util/deferred.js';
 
 import type {ExecutionResult} from './base.js';
 import type {NoOpScriptConfig} from '../script.js';
+import type {Result} from '../error.js';
+import type {Failure} from '../event.js';
 
 /**
  * Execution for a {@link NoOpScriptConfig}.
  */
 export class NoOpExecution extends BaseExecution<NoOpScriptConfig> {
-  readonly #done = new Deferred<void>();
-  get done() {
+  readonly #done = new Deferred<Result<void, Failure[]>>();
+  override get done() {
     return this.#done.promise;
   }
 
@@ -44,7 +46,7 @@ export class NoOpExecution extends BaseExecution<NoOpScriptConfig> {
       reason: 'no-command',
     });
 
-    this.#done.resolve();
+    this.#done.resolve({ok: true, value: undefined});
 
     return {ok: true, value: {fingerprint, services}};
   }

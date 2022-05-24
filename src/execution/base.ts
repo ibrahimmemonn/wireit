@@ -49,7 +49,7 @@ export abstract class BaseExecution<T extends ScriptConfig> {
    * This promise should resolve when the script has completely finished
    * running, or has no chance of ever running.
    */
-  abstract done: Promise<void>;
+  abstract done: Promise<Result<void, Failure[]>>;
 
   /**
    * Execute all of this script's dependencies.

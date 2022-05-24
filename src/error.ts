@@ -237,12 +237,18 @@ export function convertExceptionToFailure(
 }
 
 export function aggregateFailures(
-  results: Array<Result<void, Failure>>
+  results: Array<Result<void, Failure | Failure[]>>
 ): Result<void, Failure[]> {
   const failures = new Set<Failure>();
   for (const result of results) {
     if (!result.ok) {
-      failures.add(result.error);
+      if (result.error instanceof Array) {
+        for (const failure of result.error) {
+          failures.add(failure);
+        }
+      } else {
+        failures.add(result.error);
+      }
     }
   }
   if (failures.size > 0) {

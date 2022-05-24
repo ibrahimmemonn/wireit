@@ -12,6 +12,7 @@ import {Deferred} from '../util/deferred.js';
 import type {ExecutionResult} from './base.js';
 import type {ScriptConfig, ServiceScriptConfig} from '../script.js';
 import type {Result} from '../error.js';
+import type {Failure} from '../event.js';
 
 /**
  * Possible states of a {@link ServiceExecution}.
@@ -52,8 +53,8 @@ const unexpectedState = (state: ServiceExecutionState) => {
 export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
   #state: ServiceExecutionState = {state: 'initial'};
 
-  readonly #done = new Deferred<void>();
-  get done() {
+  readonly #done = new Deferred<Result<void, Failure[]>>();
+  override get done() {
     return this.#done.promise;
   }
 
@@ -139,7 +140,7 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
    * Prevent this service from stopping after it is started, until
    * {@link unimmortalize} is called.
    */
-  addConsumer(releaseConsumer: Promise<void>): void {
+  addConsumer(releaseConsumer: Promise<unknown>): void {
     console.log(this.script.name, 'ADD CONSUMER', this.#state.state);
     this.#numConsumers++;
     void releaseConsumer
@@ -263,7 +264,17 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
     switch (this.#state.state) {
       case 'starting': {
         this.#state = {state: 'failed'};
-        this.#done.resolve();
+        this.#done.resolve({
+          ok: false,
+          error: [
+            {
+              type: 'failure',
+              script: this.script,
+              reason: 'unknown-error-thrown',
+              error: 'TODO',
+            },
+          ],
+        });
         return;
       }
       case 'started': {
@@ -303,7 +314,7 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
           // should only ever terminate because it was killed. Anything else is
           // an unexpected termination.
           this.#state = {state: 'stopped'};
-          this.#done.resolve();
+          this.#done.resolve({ok: true, value: undefined});
           this.logger.log({
             script: this.script,
             type: 'success',
@@ -315,7 +326,17 @@ export class ServiceExecution extends BaseExecution<ServiceScriptConfig> {
           // one-shot. Or maybe it should actually be the propagated failure
           // error somehow.
           this.#state = {state: 'failed'};
-          this.#done.resolve();
+          this.#done.resolve({
+            ok: false,
+            error: [
+              {
+                type: 'failure',
+                script: this.script,
+                reason: 'unknown-error-thrown',
+                error: 'TODO',
+              },
+            ],
+          });
         }
         return;
       }

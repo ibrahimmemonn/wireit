@@ -15,11 +15,12 @@ import {
 } from './script.js';
 import {WorkerPool} from './util/worker-pool.js';
 import {Deferred} from './util/deferred.js';
-import {convertExceptionToFailure} from './error.js';
+import {aggregateFailures, convertExceptionToFailure, Result} from './error.js';
 
 import type {ExecutionResult} from './execution/base.js';
 import type {Logger} from './logging/logger.js';
 import type {Cache} from './caching/cache.js';
+import {Failure} from './event.js';
 
 /**
  * What to do when a script failure occurs:
@@ -123,19 +124,37 @@ export class Executor {
     return this.#killRunningScripts.promise;
   }
 
-  executeTopLevel(script: ScriptConfig): Promise<ExecutionResult> {
-    for (const service of this.findTopLevelServices(script)) {
-      void this.execute(service).then((result) => {
-        if (result.ok) {
-          for (const service of result.value.services) {
-            void service.addConsumer(this.#killTopLevelServices.promise);
-            // TODO(aomarks) Errors
-            void service.start();
-          }
+  async executeTopLevel(
+    script: ScriptConfig
+  ): Promise<Result<void, Failure[]>> {
+    const servicesDone = [];
+    for (const config of this.findTopLevelServices(script)) {
+      const execution = this.getExecution(config);
+      execution.addConsumer(this.#killTopLevelServices.promise);
+      void this.execute(script).then(() => {
+        void execution.start();
+      });
+      servicesDone.push(execution.done);
+      void execution.done.then((result) => {
+        if (!result.ok) {
+          this.notifyFailure();
         }
       });
     }
-    return this.execute(script);
+    const result = await this.execute(script);
+    if (!result.ok) {
+      const services = await Promise.all(servicesDone);
+      const agg = aggregateFailures(services);
+      if (!agg.ok) {
+        for (const failure of agg.error) {
+          result.error.push(failure);
+        }
+      }
+      return result;
+    }
+    const services = await Promise.all(servicesDone);
+    const agg = aggregateFailures(services);
+    return agg;
   }
 
   findTopLevelServices(
@@ -181,6 +200,8 @@ export class Executor {
     return promise;
   }
 
+  getExecution(script: ServiceScriptConfig): ServiceExecution;
+  getExecution(script: ScriptConfig): Execution;
   getExecution(script: ScriptConfig): Execution {
     const executionKey = scriptReferenceToString(script);
     let execution = this.#executions.get(executionKey);
