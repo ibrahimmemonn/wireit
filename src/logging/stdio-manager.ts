@@ -4,72 +4,74 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import * as pathlib from 'path';
+import * as fs from 'fs/promises';
 import {
   ScriptReference,
   ScriptReferenceString,
   scriptReferenceToString,
+  stringToScriptReference,
 } from '../script.js';
+import {getScriptDataDir} from '../util/script-data-dir.js';
 
 type Chunk = [Buffer | string, 'stdout' | 'stderr'];
+type ScriptState = 'running' | 'succeeded' | 'failed';
 
 export class StdioManager {
   #verbose: boolean;
+  #lockHeldBy?: ScriptReferenceString;
+  #queue = new Set<ScriptReferenceString>();
   #buffers = new Map<ScriptReferenceString, Chunk[]>();
+  #state = new Map<ScriptReferenceString, ScriptState>();
+  #writeStreams = new Map<ScriptReferenceString, Promise<fs.FileHandle>>();
 
   constructor(verbose: boolean) {
     this.#verbose = verbose;
   }
 
   onChunk(
-    script: ScriptReference,
+    script: ScriptReferenceString,
     chunk: string | Buffer,
     stream: 'stdout' | 'stderr'
   ) {
-    if (this.#verbose) {
-      this.#write(chunk, stream);
-      return;
-    }
-
-    const main = isMain(script);
-    const state = getState(script);
-    const key = scriptReferenceToString(script);
-    switch (state) {
-      case 'failed': {
-        this.#write(chunk, stream);
-        return;
-      }
-      case 'succeeded': {
-        if (main) {
-          this.#write(chunk, stream);
-        }
-        return;
-      }
-      case 'running': {
-        if (main) {
-          this.#write(chunk, stream);
+    if (this.#lockHeldBy === script) {
+      this.#emit(chunk, stream);
+    } else {
+      const shouldEmit = isMain(script) || this.#verbose;
+      if (shouldEmit) {
+        if (this.#lockHeldBy === undefined) {
+          this.#lockHeldBy = script;
+          this.#emit(chunk, stream);
         } else {
-          this.#buffer(key, chunk, stream);
+          this.#queue.add(script);
         }
-        return;
-      }
-      default: {
-        const never = state;
-        throw new Error(`Unknown stdio script state: ${String(never)}`);
       }
     }
+    void this.#writeToFile(script, chunk, stream);
   }
 
-  onStateChange(script: ScriptReference, state: ScriptState) {
+  onStateChange(script: ScriptReferenceString, state: ScriptState) {
     const main = isMain(script);
-    const key = scriptReferenceToString(script);
     switch (state) {
       case 'failed': {
-        if (!main) {
-          this.#flush(key);
+        if (this.#lockHeldBy === script) {
+          this.#releaseLock();
+          this.#closeFile();
+        } else {
+          this.#queue.add(script);
         }
         return;
       }
       case 'succeeded': {
+        if (this.#lockHeldBy === script) {
+          this.#releaseLock();
+          this.#closeFile();
+        } else {
+          const shouldEmit = isMain(script) || this.#verbose;
+          if (shouldEmit) {
+            this.#queue.add(script);
+          }
+        }
         return;
       }
       case 'running': {
@@ -82,7 +84,27 @@ export class StdioManager {
     }
   }
 
-  #write(chunk: string | Buffer, stream: 'stdout' | 'stderr') {
+  #releaseLock() {}
+
+  async #writeToDisk(
+    script: ScriptReferenceString,
+    chunk: string | Buffer,
+    stream: 'stdout' | 'stderr'
+  ) {
+    let fileHandlePromise = this.#writeStreams.get(script);
+    if (fileHandlePromise === undefined) {
+      const path = pathlib.join(
+        getScriptDataDir(stringToScriptReference(script)),
+        stream === 'stdout' ? 'stdout' : 'stderr'
+      );
+      fileHandlePromise = fs.open(path, 'ax+');
+      this.#writeStreams.set(script, fileHandlePromise);
+    }
+    const fileHandle = await fileHandlePromise;
+    await fileHandle.write(chunk);
+  }
+
+  #emit(chunk: string | Buffer, stream: 'stdout' | 'stderr') {
     if (stream === 'stdout') {
       process.stdout.write(chunk);
     } else {
@@ -109,18 +131,16 @@ export class StdioManager {
       return;
     }
     for (const [chunk, stream] of chunks) {
-      this.#write(chunk, stream);
+      this.#emit(chunk, stream);
     }
     this.#buffers.delete(script);
   }
 }
 
-function isMain(_script: ScriptReference) {
+function isMain(_script: ScriptReferenceString) {
   return false;
 }
 
-type ScriptState = 'running' | 'succeeded' | 'failed';
-
-function getState(_script: ScriptReference): ScriptState {
+function getState(_script: ScriptReferenceString): ScriptState {
   return 'running';
 }
