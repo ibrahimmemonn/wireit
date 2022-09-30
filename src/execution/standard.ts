@@ -96,7 +96,7 @@ export class StandardScriptExecution extends BaseExecution<StandardScriptConfig>
       // this script, which would affect the key.
       const fingerprint = await Fingerprint.compute(
         this.script,
-        dependencyFingerprints.value
+        dependencyFingerprints.value.fingerprints
       );
       if (await this._fingerprintIsFresh(fingerprint)) {
         const manifestFresh = await this._outputManifestIsFresh();
@@ -245,7 +245,7 @@ export class StandardScriptExecution extends BaseExecution<StandardScriptConfig>
       type: 'success',
       reason: 'fresh',
     });
-    return {ok: true, value: fingerprint};
+    return {ok: true, value: {fingerprint, services: []}};
   }
 
   /**
@@ -291,7 +291,7 @@ export class StandardScriptExecution extends BaseExecution<StandardScriptConfig>
       reason: 'cached',
     });
 
-    return {ok: true, value: fingerprint};
+    return {ok: true, value: {fingerprint, services: []}};
   }
 
   /**
@@ -408,7 +408,7 @@ export class StandardScriptExecution extends BaseExecution<StandardScriptConfig>
       }
     }
 
-    return {ok: true, value: fingerprint};
+    return {ok: true, value: {fingerprint, services: []}};
   }
 
   private async _shouldClean(fingerprint: Fingerprint) {

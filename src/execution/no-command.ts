@@ -25,19 +25,19 @@ export class NoCommandScriptExecution extends BaseExecution<NoCommandScriptConfi
   }
 
   private async _execute(): Promise<ExecutionResult> {
-    const dependencyFingerprints = await this.executeDependencies();
-    if (!dependencyFingerprints.ok) {
-      return dependencyFingerprints;
+    const result = await this.executeDependencies();
+    if (!result.ok) {
+      return result;
     }
     const fingerprint = await Fingerprint.compute(
       this.script,
-      dependencyFingerprints.value
+      result.value.fingerprints
     );
     this.logger.log({
       script: this.script,
       type: 'success',
       reason: 'no-command',
     });
-    return {ok: true, value: fingerprint};
+    return {ok: true, value: {fingerprint, services: result.value.services}};
   }
 }

@@ -13,7 +13,15 @@ import type {ScriptConfig, ScriptReference} from '../config.js';
 import type {Logger} from '../logging/logger.js';
 import type {Failure} from '../event.js';
 
-export type ExecutionResult = Result<Fingerprint, Failure[]>;
+interface Service {
+  start: () => Promise<void>;
+  release: () => void;
+}
+
+export type ExecutionResult = Result<
+  {fingerprint: Fingerprint; services: Service[]},
+  Failure[]
+>;
 
 /**
  * What to do when a script failure occurs:
@@ -43,7 +51,13 @@ export abstract class BaseExecution<T extends ScriptConfig> {
    * Execute all of this script's dependencies.
    */
   protected async executeDependencies(): Promise<
-    Result<Array<[ScriptReference, Fingerprint]>, Failure[]>
+    Result<
+      {
+        fingerprints: Array<[ScriptReference, Fingerprint]>;
+        services: Service[];
+      },
+      Failure[]
+    >
   > {
     // Randomize the order we execute dependencies to make it less likely for a
     // user to inadvertently depend on any specific order, which could indicate
@@ -55,7 +69,8 @@ export abstract class BaseExecution<T extends ScriptConfig> {
         return this.executor.execute(dependency.config);
       })
     );
-    const results: Array<[ScriptReference, Fingerprint]> = [];
+    const fingerprints: Array<[ScriptReference, Fingerprint]> = [];
+    const services: Service[] = [];
     const errors = new Set<Failure>();
     for (let i = 0; i < dependencyResults.length; i++) {
       const result = dependencyResults[i];
@@ -64,12 +79,16 @@ export abstract class BaseExecution<T extends ScriptConfig> {
           errors.add(error);
         }
       } else {
-        results.push([this.script.dependencies[i].config, result.value]);
+        fingerprints.push([
+          this.script.dependencies[i].config,
+          result.value.fingerprint,
+        ]);
+        services.push(...result.value.services);
       }
     }
     if (errors.size > 0) {
       return {ok: false, error: [...errors]};
     }
-    return {ok: true, value: results};
+    return {ok: true, value: {fingerprints, services}};
   }
 }
