@@ -12,7 +12,7 @@ import {
 } from './util/windows.js';
 
 import type {Result} from './error.js';
-import type {ScriptConfig} from './config.js';
+import type {ScriptReferenceWithCommand} from './config.js';
 import type {ChildProcessWithoutNullStreams} from 'child_process';
 import type {ExitNonZero, ExitSignal, SpawnError, Killed} from './event.js';
 
@@ -45,17 +45,10 @@ export type ScriptChildProcessState =
   | 'stopped';
 
 /**
- * A script config but the command is required.
- */
-type ScriptConfigWithRequiredCommand = ScriptConfig & {
-  command: Exclude<ScriptConfig['command'], undefined>;
-};
-
-/**
  * A child process spawned during execution of a script.
  */
 export class ScriptChildProcess {
-  private readonly _script: ScriptConfigWithRequiredCommand;
+  private readonly _script: ScriptReferenceWithCommand;
   private readonly _child: ChildProcessWithoutNullStreams;
   private _state: ScriptChildProcessState = 'starting';
 
@@ -74,13 +67,21 @@ export class ScriptChildProcess {
     return this._child.stderr;
   }
 
-  constructor(script: ScriptConfigWithRequiredCommand) {
-    this._script = script;
+  constructor(script: ScriptReferenceWithCommand) {
+    // Copy only the fields we actually require from the script config, because
+    // the full script config contains references to the full config, which we
+    // want to allow to be garbage-collected across watch iterations.
+    this._script = {
+      packageDir: script.packageDir,
+      name: script.name,
+      command: script.command,
+      extraArgs: script.extraArgs,
+    };
 
     // TODO(aomarks) Update npm_ environment variables to reflect the new
     // package.
-    this._child = spawn(script.command.value, script.extraArgs, {
-      cwd: script.packageDir,
+    this._child = spawn(this._script.command.value, this._script.extraArgs, {
+      cwd: this._script.packageDir,
       // Conveniently, "shell:true" has the same shell-selection behavior as
       // "npm run", where on macOS and Linux it is "sh", and on Windows it is
       // %COMSPEC% || "cmd.exe".
