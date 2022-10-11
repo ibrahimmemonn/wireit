@@ -12,14 +12,10 @@ import type {Executor} from '../executor.js';
 import type {ScriptConfig, ScriptReference} from '../config.js';
 import type {Logger} from '../logging/logger.js';
 import type {Failure} from '../event.js';
-
-interface Service {
-  start: () => Promise<void>;
-  release: () => void;
-}
+import type {RequireServiceFunction} from './service.js';
 
 export type ExecutionResult = Result<
-  {fingerprint: Fingerprint; services: Service[]},
+  {fingerprint: Fingerprint; services: RequireServiceFunction[]},
   Failure[]
 >;
 
@@ -54,7 +50,7 @@ export abstract class BaseExecution<T extends ScriptConfig> {
     Result<
       {
         fingerprints: Array<[ScriptReference, Fingerprint]>;
-        services: Service[];
+        services: RequireServiceFunction[];
       },
       Failure[]
     >
@@ -70,7 +66,7 @@ export abstract class BaseExecution<T extends ScriptConfig> {
       })
     );
     const fingerprints: Array<[ScriptReference, Fingerprint]> = [];
-    const services: Service[] = [];
+    const services: RequireServiceFunction[] = [];
     const errors = new Set<Failure>();
     for (let i = 0; i < dependencyResults.length; i++) {
       const result = dependencyResults[i];
