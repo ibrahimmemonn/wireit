@@ -11,7 +11,7 @@ import {ScriptChildProcess} from '../script-child-process.js';
 
 import type {ExecutionResult} from './base.js';
 import type {Executor} from '../executor.js';
-import type {StandardScriptConfig} from '../config.js';
+import type {ScriptConfig, StandardScriptConfig} from '../config.js';
 import type {Logger} from '../logging/logger.js';
 import type {Failure} from '../event.js';
 import type {Result} from '../error.js';
@@ -108,6 +108,8 @@ class Service {
     if (this._isBeingInvokedDirectly) {
       void this._start();
     }
+
+    console.log(this._numRequirers);
   }
 
   async require(): Promise<Result<RequireServiceResult, Failure>> {
@@ -143,11 +145,32 @@ class Service {
   }
 
   /**
-   * Walks up the dependency tree to find out how many scripts could potentially
-   * require this service.
+   * Find the scripts that may need this service to start.
+   *
+   * Accounts for the fact that we need to walk through no-command scripts,
+   * because if a script A depends on no-op script B, and B depends on service
+   * C, then A depends on service C.
    */
-  private _countPotentialRequirers(): number {
-    return 1;
+  _countPotentialRequirers(): number {
+    if (this._script.reverseDependencies.length === 0) {
+      return 0;
+    }
+    const consumers = new Set<ScriptConfig>();
+    const stack: ScriptConfig[] = [this._script];
+    while (stack.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const current = stack.pop()!;
+      for (const {config} of current.reverseDependencies) {
+        const hasNoCommand = config.command === undefined;
+        if (hasNoCommand) {
+          // Walk through
+          stack.push(config);
+        } else {
+          consumers.add(config);
+        }
+      }
+    }
+    return consumers.size;
   }
 
   private async _start() {
