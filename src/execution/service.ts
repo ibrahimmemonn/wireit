@@ -13,7 +13,7 @@ import type {ExecutionResult} from './base.js';
 import type {Executor} from '../executor.js';
 import type {ScriptConfig, StandardScriptConfig} from '../config.js';
 import type {Logger} from '../logging/logger.js';
-import type {Failure} from '../event.js';
+import type {Failure, ServiceExitedUnexpectedly} from '../event.js';
 import type {Result} from '../error.js';
 
 export type RequireServiceFunction = () => Promise<
@@ -22,7 +22,7 @@ export type RequireServiceFunction = () => Promise<
 
 export type RequireServiceResult = {
   unrequire: () => void;
-  unexpectedExit: Promise<Failure>;
+  unexpectedExit: Promise<ServiceExitedUnexpectedly>;
 };
 
 /**
@@ -53,8 +53,8 @@ export class ServiceFingerprinter extends BaseExecution<StandardScriptConfig> {
     );
     const service = new Service(
       this.script,
+      this.executor,
       this.logger,
-      fingerprint,
       result.value.services
     );
     return {
@@ -83,38 +83,66 @@ function unexpectedState(state: ServiceState) {
   return new Error(`Unexpected service state ${state}`);
 }
 
+/**
+ * ```
+ *                    ┌───────────┐
+ *     ╭── ABORT ─────┤ unstarted │
+ *     │              └────┬──────┘
+ *     │                   │
+ *     │              FIRST_REQUIRE
+ *     │                   │
+ *     │              ┌────▼─────┐
+ *     │    ╭─ ABORT ─┤ starting ├── DEPENDENCY_FAILED ─►─╮
+ *     │    │         └────┬─────┘    or START_ERROR      │
+ *     │    │              │                              │
+ *     │    │           STARTED                           ▼
+ *     │    │              │                              │
+ *     │    │         ┌────▼────┐                         │
+ *     ▼    ▼         │ started ├── UNEXPECTED_EXIT ───►──┤
+ *     │    │         └────┬────┘                         │
+ *     │    │              │                              │
+ *     │    │        LAST_UNREQUIRE                       │
+ *     │    │           or ABORT                          │
+ *     │    │              │                              │
+ *     │    │         ┌────▼─────┐                        ▼
+ *     │    ╰─────────► stopping │                        │
+ *     │              └────┬─────┘                        │
+ *     │                   │                              │
+ *     │              EXPECTED_EXIT                       │
+ *     │                   │                              │
+ *     │              ┌────▼────┐                    ┌────▼───┐
+ *     ╰──────────────► stopped │                    │ failed │
+ *                    └─────────┘                    └────────┘
+ * ```
+ */
 class Service {
   private readonly _script: StandardScriptConfig;
-  // private readonly _logger: Logger;
-  // private readonly _fingerprint: Fingerprint;
+  private readonly _executor: Executor;
+  private readonly _logger: Logger;
   private readonly _dependencyServices: RequireServiceFunction[];
   private readonly _started = new Deferred<Result<void, Failure>>();
-  private readonly _unexpectedExit = new Deferred<Failure>();
+  private readonly _unexpectedExit = new Deferred<ServiceExitedUnexpectedly>();
   private _state: ServiceState = 'unstarted';
   private _child?: ScriptChildProcess;
   private _numRequirers = 0;
 
   constructor(
     script: StandardScriptConfig,
-    _logger: Logger,
-    _fingerprint: Fingerprint,
+    executor: Executor,
+    logger: Logger,
     dependencyServices: RequireServiceFunction[]
   ) {
     this._script = script;
-    // this._logger = logger;
-    // this._fingerprint = fingerprint;
+    this._executor = executor;
+    this._logger = logger;
     this._dependencyServices = dependencyServices;
-
-    if (this._isBeingInvokedDirectly) {
-      void this._start();
-    }
 
     console.log(this._numRequirers);
   }
 
   async require(): Promise<Result<RequireServiceResult, Failure>> {
     this._numRequirers++;
-    void this._start();
+    void this._onStart();
     const result = await this._started.promise;
     if (!result.ok) {
       this._numRequirers--;
@@ -139,11 +167,6 @@ class Service {
     return undefined;
   }
 
-  private get _isBeingInvokedDirectly(): boolean {
-    // TODO(aomarks) Implement
-    return false;
-  }
-
   /**
    * Find the scripts that may need this service to start.
    *
@@ -163,7 +186,6 @@ class Service {
       for (const {config} of current.reverseDependencies) {
         const hasNoCommand = config.command === undefined;
         if (hasNoCommand) {
-          // Walk through
           stack.push(config);
         } else {
           consumers.add(config);
@@ -173,7 +195,7 @@ class Service {
     return consumers.size;
   }
 
-  private async _start() {
+  private async _onStart() {
     switch (this._state) {
       case 'unstarted': {
         this._state = 'starting';
@@ -187,11 +209,38 @@ class Service {
           return;
         }
         this._child = new ScriptChildProcess(this._script);
+        this._child.stdout.on('data', (data: string | Buffer) => {
+          this._logger.log({
+            script: this._script,
+            type: 'output',
+            stream: 'stdout',
+            data,
+          });
+        });
+        this._child.stderr.on('data', (data: string | Buffer) => {
+          this._logger.log({
+            script: this._script,
+            type: 'output',
+            stream: 'stderr',
+            data,
+          });
+        });
         const startResult = await this._child.started;
-        this._state = startResult.ok ? 'started' : 'failed';
+        if (!startResult.ok) {
+          this._state = 'failed';
+          this._executor.notifyFailure();
+          this._started.resolve(startResult);
+          return;
+        }
+        this._state = 'started';
         this._started.resolve(startResult);
-        void this._child.completed.then((result) => {
-          this._onChildCompleted(result);
+        void this._child.completed.then(() => {
+          this._onChildCompleted();
+        });
+        this._logger.log({
+          script: this._script,
+          type: 'info',
+          detail: 'service-started',
         });
         return;
       }
@@ -200,6 +249,7 @@ class Service {
       case 'stopping':
       case 'stopped':
       case 'failed': {
+        // TODO(aomarks) These no-ops are not in the diagram.
         return;
       }
       default: {
@@ -208,17 +258,33 @@ class Service {
     }
   }
 
-  private _onChildCompleted(_result: Result<void, Failure>) {
+  private _onChildCompleted() {
     switch (this._state) {
       case 'stopping': {
+        // TODO(aomarks) Does the exit code matter? Non-zero could mean that
+        // something actually went wrong that would affect the build. OTOH some
+        // server-type processes return a non-zero exit code when they are
+        // terminated e.g. "tsc --watch" returns 130. 130 is apparently a
+        // conventional code for "terminated by the owner" (actually 128 + the
+        // signal)
         this._state = 'stopped';
+        this._logger.log({
+          script: this._script,
+          type: 'info',
+          detail: 'service-stopped',
+        });
         return;
       }
       case 'started': {
-        // A service should never exit by itself, only when we are stopping it,
-        // so this indicates a failure.
         this._state = 'failed';
-        // TODO(aomarks) How do other scripts find out?
+        this._executor.notifyFailure();
+        const failure = {
+          script: this._script,
+          type: 'failure',
+          reason: 'service-exited-unexpectedly',
+        } as const;
+        this._unexpectedExit.resolve(failure);
+        this._logger.log(failure);
         return;
       }
       case 'unstarted':
