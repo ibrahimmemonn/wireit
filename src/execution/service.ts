@@ -89,30 +89,38 @@ function unexpectedState(state: ServiceState) {
  *     ╭── ABORT ─────┤ unstarted │
  *     │              └────┬──────┘
  *     │                   │
- *     │              FIRST_REQUIRE
- *     │                   │
- *     │              ┌────▼─────┐
+ *     │                REQUIRE
+ *     │                   │  ╭─╮
+ *     │                   │  │ REQUIRE
+ *     │              ┌────▼──▼─┴┐
  *     │    ╭─ ABORT ─┤ starting ├── DEPENDENCY_FAILED ─►─╮
  *     │    │         └────┬─────┘    or START_ERROR      │
  *     │    │              │                              │
  *     │    │           STARTED                           ▼
+ *     │    ▼              │ ╭─╮                          │
+ *     │    │              │ │ REQUIRE                    │
+ *     │    │         ┌────▼─▼─┴┐                         │
+ *     ▼    ├─ ABORT ─┤ started ├───►──── EXIT ─────►─────┤
+ *     │    │         └────┬─▲─┬┘                         │
+ *     │    │              │ │ NON_FINAL_UNREQUIRE        │
+ *     │    │              │ ╰─╯                          │
  *     │    │              │                              │
- *     │    │         ┌────▼────┐                         │
- *     ▼    ▼         │ started ├── UNEXPECTED_EXIT ───►──┤
- *     │    │         └────┬────┘                         │
- *     │    │              │                              │
- *     │    │        LAST_UNREQUIRE                       │
- *     │    │           or ABORT                          │
- *     │    │              │                              │
- *     │    │         ┌────▼─────┐                        ▼
+ *     │    ▼        FINAL_UNREQUIRE                      │
+ *     │    │              │  ╭─╮                         │
+ *     │    │              │  │ REQUIRE or ABORT          │
+ *     │    │         ┌────▼──▼─┴┐                        ▼
  *     │    ╰─────────► stopping │                        │
- *     │              └────┬─────┘                        │
- *     │                   │                              │
- *     │              EXPECTED_EXIT                       │
- *     │                   │                              │
- *     │              ┌────▼────┐                    ┌────▼───┐
- *     ╰──────────────► stopped │                    │ failed │
- *                    └─────────┘                    └────────┘
+ *     │              └┬─▲─┬─────┘                        │
+ *     │           ABORT │ │                              │
+ *     │               ╰─╯ │                              │
+ *     │                  EXIT                            │
+ *     │                   │ ╭─╮                          │ ╭─╮
+ *     │                   │ │ REQUIRE or ABORT           │ │ REQUIRE
+ *     │              ┌────▼─▼─┴┐                     ┌───▼─▼─┴┐
+ *     ╰──────────────► stopped │                     │ failed │
+ *                    └┬─▲──────┘                     └┬─▲─────┘
+ *                 ABORT │              REQUIRE or ABORT │
+ *                     ╰─╯                             ╰─╯
  * ```
  */
 class Service {
@@ -142,7 +150,7 @@ class Service {
 
   async require(): Promise<Result<RequireServiceResult, Failure>> {
     this._numRequirers++;
-    void this._onStart();
+    void this._onRequire();
     const result = await this._started.promise;
     if (!result.ok) {
       this._numRequirers--;
@@ -195,18 +203,29 @@ class Service {
     return consumers.size;
   }
 
-  private async _onStart() {
+  private async _onRequire() {
     switch (this._state) {
       case 'unstarted': {
         this._state = 'starting';
-        const dependencyServiceResults = await Promise.all(
-          this._dependencyServices.map((requireService) => requireService())
-        );
-        const error = dependencyServiceResults.find((result) => !result.ok);
-        if (error && !error.ok) {
-          this._state = 'failed';
-          this._started.resolve(error);
-          return;
+        if (this._dependencyServices.length > 0) {
+          const dependencyServiceResults = await Promise.all(
+            this._dependencyServices.map((requireService) => requireService())
+          );
+          const unexpectedExitPromises: Array<
+            Promise<ServiceExitedUnexpectedly>
+          > = [];
+          for (const result of dependencyServiceResults) {
+            if (!result.ok) {
+              // DEPENDENCY_FAILED
+              this._state = 'failed';
+              this._started.resolve(result);
+              return;
+            }
+            unexpectedExitPromises.push(result.value.unexpectedExit);
+          }
+          void Promise.race(unexpectedExitPromises).then((unexpectedExit) => {
+            this._onDependencyUnexpectedExit(unexpectedExit);
+          });
         }
         this._child = new ScriptChildProcess(this._script);
         this._child.stdout.on('data', (data: string | Buffer) => {
@@ -225,16 +244,67 @@ class Service {
             data,
           });
         });
-        const startResult = await this._child.started;
-        if (!startResult.ok) {
-          this._state = 'failed';
-          this._executor.notifyFailure();
-          this._started.resolve(startResult);
-          return;
-        }
+        void this._child.started.then((result) => {
+          if (result.ok) {
+            this._onStarted();
+          } else {
+            this._onStartFailure(result.error);
+          }
+        });
+        return;
+      }
+      case 'starting':
+      case 'started':
+      case 'stopping':
+      case 'stopped': {
+        return;
+      }
+      case 'failed': {
+        throw unexpectedState(this._state);
+      }
+      default: {
+        throw unknownState(this._state);
+      }
+    }
+  }
+
+  /**
+   * All of our dependency services started, but then one of them exited before
+   * we were done.
+   */
+  private _onDependencyUnexpectedExit(
+    unexpectedExit: ServiceExitedUnexpectedly
+  ) {
+    switch (this._state) {
+      case 'starting': {
+        this._state = 'stopping';
+        return;
+      }
+      case 'started': {
+        this._state = 'stopping';
+        void this._child!.kill();
+        return;
+      }
+      case 'stopping':
+      case 'stopped':
+      case 'failed': {
+        return;
+      }
+      case 'unstarted': {
+        throw unexpectedState(this._state);
+      }
+      default: {
+        throw unknownState(this._state);
+      }
+    }
+  }
+
+  private _onStarted() {
+    switch (this._state) {
+      case 'starting': {
         this._state = 'started';
-        this._started.resolve(startResult);
-        void this._child.completed.then(() => {
+        this._started.resolve({ok: true, value: undefined});
+        void this._child!.completed.then(() => {
           this._onChildCompleted();
         });
         this._logger.log({
@@ -244,13 +314,62 @@ class Service {
         });
         return;
       }
-      case 'starting':
+      case 'stopping': {
+        // Something happened while we were waiting to start, like a dependency
+        // service failing. We successfully started, but now we need to
+        // immediately stop.
+        this._child!.kill();
+        return;
+      }
+      case 'unstarted':
       case 'started':
-      case 'stopping':
       case 'stopped':
       case 'failed': {
-        // TODO(aomarks) These no-ops are not in the diagram.
+        throw unexpectedState(this._state);
+      }
+      default: {
+        throw unknownState(this._state);
+      }
+    }
+  }
+
+  private _onStartFailure(failure: Failure) {
+    switch (this._state) {
+      case 'starting':
+      case 'stopping': {
+        this._state = 'failed';
+        this._executor.notifyFailure();
+        this._started.resolve({ok: false, error: failure});
+        this._logger.log(failure);
         return;
+      }
+      case 'unstarted':
+      case 'started':
+      case 'stopped':
+      case 'failed': {
+        throw unexpectedState(this._state);
+      }
+      default: {
+        throw unknownState(this._state);
+      }
+    }
+  }
+
+  private _onLastUnrequire() {
+    switch (this._state) {
+      case 'started': {
+        this._state = 'stopping';
+        this._child!.kill();
+        return;
+      }
+      case 'failed': {
+        return;
+      }
+      case 'unstarted':
+      case 'starting':
+      case 'stopping':
+      case 'stopped': {
+        throw unexpectedState(this._state);
       }
       default: {
         throw unknownState(this._state);
